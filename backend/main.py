@@ -608,8 +608,10 @@ def _login_page():
 
 @app.post("/auth")
 async def _auth(request: Request):
-    form = await request.form()
-    if SITE_PASSWORD and _hmac.compare_digest(str(form.get("password", "")), SITE_PASSWORD):
+    from urllib.parse import parse_qs
+    body = (await request.body()).decode("utf-8", "ignore")
+    pw = parse_qs(body).get("password", [""])[0]
+    if SITE_PASSWORD and _hmac.compare_digest(pw, SITE_PASSWORD):
         r = RedirectResponse("/", status_code=303)
         r.set_cookie("oracle_auth", _auth_token(), httponly=True, max_age=2592000, samesite="lax")
         return r
