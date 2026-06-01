@@ -340,44 +340,130 @@
 
   /* ============ MOBILE RESPONSIVE ============ */
   @media (max-width:768px){
-    body{padding:10px;background-size:24px 24px}
+    body{padding:8px;background-size:24px 24px}
     .wrap{padding:0}
-    header{padding:14px 16px}
-    .title{font-size:18px;letter-spacing:2px}
-    .sub{font-size:10px}
+
+    /* HEADER mobile — title 1 dòng, sub chips scroll ngang */
+    header{
+      padding:12px 14px;
+      flex-direction:column !important; align-items:stretch !important; gap:10px;
+    }
+    .title{
+      font-size:17px; letter-spacing:1.5px; line-height:1.2;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      display:flex; align-items:center; flex-wrap:nowrap;
+    }
+    .title-badge{font-size:9px;padding:2px 7px;letter-spacing:1px;flex-shrink:0}
+    .sub{
+      font-size:10px; gap:6px; margin-top:4px;
+      overflow-x:auto; flex-wrap:nowrap !important;
+      scrollbar-width:none; -webkit-overflow-scrolling:touch;
+      padding-bottom:2px;
+    }
+    .sub::-webkit-scrollbar{display:none}
+    .sub-chip{
+      flex-shrink:0; font-size:9.5px; padding:3px 8px; white-space:nowrap;
+    }
+    /* User bar mobile — gọn lại */
+    #userBar{
+      width:100%; justify-content:space-between !important;
+      padding-top:8px; border-top:1px dashed rgba(0,255,156,.15); margin-top:4px;
+      font-size:10.5px !important;
+    }
+    #userBar #meTag{font-size:11px}
+    #userBar a{font-size:10px !important;padding:5px 10px !important}
+
+    /* CONTROLS bar — scroll ngang, button to hơn */
     .controls{
-      padding:8px; gap:6px;
+      top:4px;
+      padding:8px; gap:5px;
       overflow-x:auto; flex-wrap:nowrap;
       scrollbar-width:none; -webkit-overflow-scrolling:touch;
     }
     .controls::-webkit-scrollbar{display:none}
-    button,select{padding:8px 11px;font-size:11.5px;white-space:nowrap}
-    .match{padding:12px}
-    .row{flex-direction:column;align-items:stretch}
-    .row > div:last-child{text-align:left;display:flex;align-items:center;justify-content:space-between;margin-top:8px;gap:10px}
-    .teams{font-size:13.5px}
-    .score{font-size:20px}
-    .donutbox{width:150px;height:150px}
-    .flex{gap:12px}
-    .col{min-width:100%}
+    button,select{padding:9px 12px;font-size:12px;white-space:nowrap;letter-spacing:.8px}
+    select{padding-right:28px}
+    .auto{font-size:10px;flex-shrink:0}
+
+    /* MATCH CARDS — gọn lại */
+    .match{padding:11px 12px;margin-bottom:10px}
+    .row{flex-direction:column;align-items:stretch;gap:8px}
+    .row > div:last-child{
+      text-align:left; display:flex; align-items:center;
+      justify-content:space-between; gap:10px; margin-top:0;
+    }
+    .league{font-size:9.5px;letter-spacing:1px;margin-bottom:3px}
+    .teams{font-size:13px;gap:8px;margin:1px 0}
+    .teams img{width:20px;height:20px}
+    .score{font-size:22px;font-weight:800}
+
+    /* DONUT + flex columns */
+    .flex{gap:10px;flex-direction:column}
+    .col{min-width:100%;flex:1 1 100%}
+    .donutbox{width:160px;height:160px;margin:0 auto}
+
+    /* GRID stats */
     .grid2{grid-template-columns:1fr 1fr;gap:6px}
-    .grid2[style*="3"]{grid-template-columns:1fr 1fr 1fr}
+    .grid2[style*="3"]{grid-template-columns:1fr 1fr 1fr;gap:5px}
+    .cell{padding:7px 9px}
+    .cell .k{font-size:9px}
+    .cell .v{font-size:12.5px}
+
+    /* BIG STATS */
     .bigstat{gap:8px}
-    .bs{padding:14px 10px;min-width:calc(50% - 4px)}
-    .bs .n{font-size:26px}
+    .bs{padding:12px 8px;min-width:calc(50% - 4px)}
+    .bs .n{font-size:24px}
+    .bs .l{font-size:9px;letter-spacing:1px}
+
+    /* HEATMAP */
     .heat{gap:2px;font-size:9px}
+    .heat .lbl{font-size:9px}
+
+    /* TABLES */
     table{font-size:11px}
-    th,td{padding:6px 4px}
+    th,td{padding:7px 5px}
+    th{font-size:9px;letter-spacing:1px}
+
+    /* SCORES */
     .scores{gap:5px}
-    .sbox{padding:5px 8px;font-size:11px;min-width:50px}
-    .scan-btn{padding:8px 12px;font-size:12px}
+    .sbox{padding:5px 9px;font-size:11px;min-width:48px}
+    .sbox b{font-size:13px}
+
+    /* SCAN BUTTON */
+    .scan-btn{padding:8px 14px;font-size:12px;width:100%;margin-top:8px}
+
+    /* VERDICT */
+    .verdict{padding:12px 13px}
+    .verdict li{font-size:11.5px;padding:4px 0 4px 18px}
+    .vh{font-size:10.5px;letter-spacing:2px}
   }
+
+  /* Cực nhỏ — iPhone SE, viewport <420px */
   @media (max-width:420px){
-    .title{font-size:16px}
-    .donutbox{width:130px;height:130px}
+    body{padding:6px}
+    header{padding:10px 12px}
+    .title{font-size:15px;letter-spacing:1px;gap:6px}
+    .title-badge{font-size:8.5px;padding:2px 6px}
+    .sub-chip{font-size:9px;padding:2px 7px}
+    .donutbox{width:140px;height:140px}
     .donutc b{font-size:18px}
-    .grid2[style*="3"]{grid-template-columns:1fr 1fr}
-    .grid2[style*="3"] > div:nth-child(3){grid-column:1/-1}
+    .donutc span{font-size:9px}
+
+    /* 3 KÈO CHÍNH cards — stack 1 col */
+    .grid2[style*="3"]{grid-template-columns:1fr;gap:5px}
+    .grid2[style*="3"] > div{padding:10px}
+    .grid2[style*="3"] .v{font-size:16px}
+
+    /* Stat grid → 1 cột để dễ đọc */
+    .bigstat{flex-direction:column;gap:6px}
+    .bs{min-width:100%;padding:11px 10px;display:flex;align-items:center;justify-content:space-between;text-align:left}
+    .bs .n{font-size:22px}
+    .bs .l{font-size:9.5px;margin-top:0}
+
+    /* Score + button row */
+    .row > div:last-child{flex-direction:column;align-items:stretch}
+    .row > div:last-child .score{align-self:flex-start;font-size:20px}
+    .scan-btn{width:100%}
   }
 
   /* ============ SCROLLBAR ============ */
