@@ -1,0 +1,7 @@
+# (Tùy chọn) Chỉ cần khi bạn muốn train & dùng model Machine Learning.
+# Lưu ý: trên Python rất mới (vd 3.14) có thể chưa có bản dựng sẵn -> cài chậm
+# hoặc lỗi. Nếu gặp lỗi, hãy dùng Python 3.11/3.12, hoặc bỏ qua phần ML.
+scikit-learn
+numpy
+pandas
+joblib

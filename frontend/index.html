@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FOOTBALL ORACLE // engine</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#05070a;--panel:#0a0f14;--panel2:#0d141b;--neon:#00ff9c;--neon2:#00e0ff;
+    --warn:#ffb000;--bad:#ff3b5c;--txt:#b8ffe0;--dim:#3f6b5a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Courier New',ui-monospace,monospace;background:var(--bg);color:var(--txt);
+    padding:16px;min-height:100vh;
+    background-image:linear-gradient(rgba(0,255,156,.04) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(0,255,156,.04) 1px,transparent 1px);background-size:32px 32px}
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
+    background:repeating-linear-gradient(transparent 0 2px,rgba(0,0,0,.16) 2px 4px);mix-blend-mode:multiply;opacity:.5}
+  header{border:1px solid rgba(0,255,156,.25);background:linear-gradient(180deg,rgba(0,255,156,.06),transparent);
+    padding:12px 14px;border-radius:6px;margin-bottom:14px}
+  .title{font-size:20px;font-weight:700;letter-spacing:2px;color:var(--neon);text-shadow:0 0 8px rgba(0,255,156,.6)}
+  .title b{color:var(--neon2)}
+  .sub{font-size:11px;color:var(--dim);margin-top:4px;letter-spacing:1px}
+  .blink{animation:blink 1s steps(2) infinite}@keyframes blink{50%{opacity:0}}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  button,select{font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);
+    padding:8px 12px;border-radius:4px;cursor:pointer;font-size:13px;letter-spacing:1px;transition:.15s}
+  button:hover,select:hover{box-shadow:0 0 10px rgba(0,255,156,.35);border-color:var(--neon)}
+  button.active{background:var(--neon);color:#021;font-weight:700;box-shadow:0 0 14px rgba(0,255,156,.6)}
+  .auto{font-size:11px;color:var(--dim)}
+  .match{background:var(--panel);border:1px solid rgba(0,255,156,.15);border-left:3px solid var(--neon);
+    border-radius:5px;padding:12px 14px;margin-bottom:10px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .league{font-size:10px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+  .teams{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700}
+  .teams img{width:20px;height:20px;object-fit:contain}
+  .score{font-size:18px;font-weight:700;color:var(--neon2);text-shadow:0 0 8px rgba(0,224,255,.5)}
+  .scan-btn{font-size:12px;padding:6px 12px;margin-top:6px}.scan-btn::before{content:"⚡ "}
+  .panel{margin-top:12px;border-top:1px dashed rgba(0,255,156,.25);padding-top:10px;display:none}
+  .term{font-size:12px;line-height:1.7;white-space:pre-wrap;color:var(--neon);min-height:16px}
+  .flex{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-top:8px}
+  .col{flex:1;min-width:210px}
+  .donutbox{width:160px;height:160px;position:relative}
+  .donutc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  .donutc b{font-size:18px;color:var(--neon)}.donutc span{font-size:9px;color:var(--dim);letter-spacing:1px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+  .cell{background:var(--panel2);border:1px solid rgba(0,224,255,.18);border-radius:4px;padding:7px 9px;font-size:11px}
+  .cell .k{color:var(--dim);letter-spacing:1px}.cell .v{color:var(--neon2);font-size:13px;font-weight:700;margin-top:2px}
+  .heat{display:grid;grid-template-columns:auto repeat(6,1fr);gap:2px;font-size:10px;margin-top:6px}
+  .heat .hc{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:2px;color:#021;font-weight:700}
+  .heat .lbl{color:var(--dim);display:flex;align-items:center;justify-content:center}
+  .verdict{margin-top:10px;background:rgba(0,255,156,.05);border:1px solid rgba(0,255,156,.25);border-radius:4px;padding:10px}
+  .vh{font-size:11px;color:var(--warn);letter-spacing:2px;margin-bottom:6px}
+  .verdict ul{list-style:none}.verdict li{font-size:12px;padding:3px 0 3px 16px;position:relative}
+  .verdict li::before{content:"▸";position:absolute;left:0;color:var(--neon)}
+  .tag{display:inline-block;font-size:10px;padding:2px 7px;border-radius:3px;letter-spacing:1px;font-weight:700}
+  .t-hi{background:var(--neon);color:#021}.t-mid{background:var(--warn);color:#221}.t-lo{background:var(--bad);color:#fff}
+  .empty{color:var(--dim);text-align:center;padding:30px;font-size:13px;letter-spacing:1px}.err{color:var(--bad)}
+  .scores{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+  .sbox{background:#04140d;border:1px solid rgba(0,255,156,.3);border-radius:4px;padding:5px 9px;font-size:12px;text-align:center}
+  .sbox b{color:var(--neon2);font-size:14px}.sbox span{display:block;color:var(--dim);font-size:9px}
+  /* ===== hiệu ứng nhấp nháy cho dự đoán xác suất cao nhất ===== */
+  @keyframes pulseGlow{0%,100%{box-shadow:0 0 6px rgba(0,255,156,.4)}50%{box-shadow:0 0 22px rgba(0,255,156,.95)}}
+  @keyframes textFlash{0%,100%{opacity:1;text-shadow:0 0 12px rgba(0,255,156,.95)}50%{opacity:.45;text-shadow:none}}
+  @keyframes borderRun{0%,100%{border-color:var(--neon)}50%{border-color:var(--neon2)}}
+  .flash{animation:textFlash 1s steps(2,jump-none) infinite;color:var(--neon)!important;font-weight:700}
+  .hot{animation:pulseGlow 1.2s ease-in-out infinite,borderRun 2s linear infinite;border:1px solid var(--neon)!important;border-radius:4px;padding:2px 6px}
+  .sbox.top{border-color:var(--neon);animation:pulseGlow 1.3s ease-in-out infinite}
+  .sbox.top b{color:var(--neon)}
+  .donutbox.win{animation:pulseGlow 1.4s ease-in-out infinite;border-radius:50%}
+  .match.hotmatch{border-left-color:var(--neon2);animation:borderRun 2.2s linear infinite}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{padding:6px 8px;text-align:center;border-bottom:1px solid rgba(0,255,156,.1)}
+  th{color:var(--dim);letter-spacing:1px;font-size:10px;text-transform:uppercase}
+  td.name{text-align:left;color:var(--txt)}tr:hover{background:rgba(0,255,156,.04)}
+  .rk{color:var(--neon2);font-weight:700}
+  .bigstat{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .bs{flex:1;min-width:140px;background:var(--panel);border:1px solid rgba(0,255,156,.2);border-radius:6px;padding:14px;text-align:center}
+  .bs .n{font-size:30px;font-weight:700;color:var(--neon);text-shadow:0 0 10px rgba(0,255,156,.5)}
+  .bs .l{font-size:10px;color:var(--dim);letter-spacing:1px;margin-top:4px}
+  .src{font-size:11px;color:var(--dim);margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="title">⛧ FOOTBALL <b>ORACLE</b> <span class="blink">_</span></div>
+  <div class="sub">ENGINE: DIXON-COLES · MONTE-CARLO 10k · ML(softmax) · fit từ cả mùa giải</div>
+</header>
+
+<div class="controls">
+  <button id="b-comp" class="active" onclick="setTab('comp')">▦ TRẬN ĐẤU</button>
+  <button id="b-rank" onclick="setTab('rank')">▤ BXH</button>
+  <button id="b-bt" onclick="setTab('bt')">◎ KIỂM ĐỊNH</button>
+  <button id="b-track" onclick="setTab('track')">▣ SỔ KÈO</button>
+  <button id="b-live" onclick="setTab('live')">◉ LIVE</button>
+  <select id="comp" onchange="reload()">
+    <option value="WC">🌍 World Cup 2026</option>
+    <option value="BSA">🇧🇷 VĐQG Brazil</option>
+    <option value="PL">🏴 Ngoại hạng Anh</option>
+    <option value="PD">🇪🇸 La Liga</option>
+    <option value="SA">🇮🇹 Serie A</option>
+    <option value="BL1">🇩🇪 Bundesliga</option>
+    <option value="FL1">🇫🇷 Ligue 1</option>
+    <option value="CL">⭐ Champions League</option>
+    <option value="DED">🇳🇱 Eredivisie</option>
+    <option value="PPL">🇵🇹 Primeira Liga</option>
+    <option value="ELC">🏴 Championship</option>
+  </select>
+  <span id="auto" class="auto"></span>
+</div>
+
+<div id="view"><div class="empty">khởi động lõi...</div></div>
+
+<script>
+// Live Server (cổng 5500) thì gọi backend 8000; còn lại (chạy local 8000 hoặc deploy lên domain) dùng chính origin.
+const API=location.port==="5500"?"http://127.0.0.1:8000":location.origin;
+let tab="comp", timer=null;
+const code=()=>document.getElementById("comp").value;
+
+function setTab(t){
+  tab=t;
+  ["comp","rank","bt","track","live"].forEach(x=>document.getElementById("b-"+x).classList.toggle("active",x===t));
+  clearInterval(timer);
+  document.getElementById("auto").textContent = t==="live"?"// auto-sync 30s":"";
+  if(t==="live") timer=setInterval(reload,60000);  // tự cập nhật mỗi phút
+  reload();
+}
+function reload(){ if(tab==="comp")loadMatches(); else if(tab==="rank")loadRank();
+  else if(tab==="bt")loadValidate(); else if(tab==="track")loadTrack();
+  else if(tab==="live")loadLive(); }
+
+async function getJSON(u){const r=await fetch(u);return r.json();}
+
+async function loadMatches(){
+  const v=document.getElementById("view");
+  v.innerHTML='<div class="empty">[ ████░░░░ ] nạp mùa giải + fit chỉ số sức mạnh...</div>';
+  try{const d=await getJSON(`${API}/api/competition?code=${code()}`);
+    if(d.detail){v.innerHTML='<div class="empty err">! '+d.detail+'</div>';return;}
+    if(!d.matches?.length){v.innerHTML='<div class="empty">// không có trận.</div>';return;}
+    v.innerHTML=d.matches.map(m=>matchCard(m,true)).join("");
+  }catch(e){v.innerHTML='<div class="empty err">! '+e+'</div>';}
+}
+function estMinute(dateStr){
+  let e=Math.floor((Date.now()-new Date(dateStr))/60000);
+  if(e>45) e-=15;                 // trừ nghỉ giữa hiệp (ước lượng)
+  return Math.max(0,Math.min(e,90));
+}
+function lbar(label,val,win){const p=(val*100).toFixed(1);
+  return `<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:11px;letter-spacing:1px">
+    <span>${label}</span><span>${p}%</span></div>
+    <div style="background:#04140d;border:1px solid rgba(0,255,156,.2);border-radius:3px;height:15px;overflow:hidden">
+    <div class="${win?'bar-fill win':''}" style="height:100%;width:${p}%;background:${win?'linear-gradient(90deg,var(--neon),#7dff00)':'linear-gradient(90deg,var(--neon2),var(--neon))'}"></div></div></div>`;}
+
+let tvId=localStorage.getItem("tvId")||"";
+function setTvId(){const el=document.getElementById("tvid");tvId=(el.value||"").trim();localStorage.setItem("tvId",tvId);tvRender();}
+let tvTicker=null, tvLiveTimer=null, verdictTyper=null;
+function typeVerdict(scope){
+  clearTimeout(verdictTyper);
+  const root=scope||document;
+  const lis=[...root.querySelectorAll(".verdict li")];
+  if(!lis.length)return;
+  const texts=lis.map(li=>li.textContent);
+  lis.forEach(li=>li.textContent="");
+  let li=0,ci=0;
+  const step=()=>{
+    if(li>=lis.length)return;
+    const t=texts[li];
+    if(ci<=t.length){
+      lis[li].textContent=t.slice(0,ci)+(ci<t.length?"▋":"");
+      ci++; verdictTyper=setTimeout(step,11);
+    }else{ lis[li].textContent=t; li++; ci=0; verdictTyper=setTimeout(step,110); }
+  };
+  step();
+}
+const ANA_MSGS=["⟳ Đồng bộ dữ liệu trực tiếp (diendanbongda.com)...",
+  "⟳ Cập nhật tỉ số & phút thi đấu thật...","⟳ Dựng ma trận Dixon-Coles tỉ số cuối...",
+  "⟳ Mô phỏng Monte Carlo 10.000 kịch bản...","⟳ Quét kèo 1×2 / Tài-Xỉu / chấp châu Á...",
+  "⟳ Phân tích phạt góc, thẻ, đà trận...","⟳ Tổng hợp xác suất từ nhiều mô hình..."];
+function startTicker(){
+  clearInterval(tvTicker);let i=0;
+  const tick=()=>{const e=document.getElementById("ana-ticker");if(!e)return;
+    if(i%ANA_MSGS.length===0){const t=new Date().toLocaleTimeString('vi');e.innerHTML='<span style="color:var(--neon2)">✓ cập nhật lúc '+t+'</span>';}
+    else e.textContent=ANA_MSGS[i%ANA_MSGS.length];i++;};
+  tick();tvTicker=setInterval(tick,1300);
+}
+
+function renderRealOdds(d){
+  const o=d.real_odds;const box=document.getElementById("tvreport");if(!box)return;
+  if(!o||((!o.h2h||!o.h2h.length)&&(!o.ah||!o.ah.length)&&(!o.ou||!o.ou.length))){return;}
+  const f=v=>v?Number(v).toFixed(2):'-';
+  const h2h=(o.h2h&&o.h2h.length)?`<div class="vh">▌ 1×2 THẬT</div><table><thead><tr><th class="name" style="text-align:left">Nhà cái</th><th>Nhà</th><th>Hòa</th><th>Khách</th></tr></thead><tbody>
+    ${o.h2h.map(r=>`<tr><td class="name">${r.book}</td><td class="rk">${f(r.home)}</td><td>${f(r.draw)}</td><td class="rk">${f(r.away)}</td></tr>`).join("")}</tbody></table>`:'';
+  const ah=o.ah&&o.ah.length?`<div class="vh" style="margin-top:8px">▌ KÈO CHẤP THẬT</div><table><thead><tr><th class="name" style="text-align:left">Nhà cái</th><th>Mức</th><th>Nhà</th><th>Khách</th></tr></thead><tbody>
+    ${o.ah.map(r=>`<tr><td class="name">${r.book}</td><td class="rk">${r.line||''}</td><td>${f(r.home)}</td><td>${f(r.away)}</td></tr>`).join("")}</tbody></table>`:'';
+  const ou=o.ou&&o.ou.length?`<div class="vh" style="margin-top:8px">▌ TÀI/XỈU THẬT</div><table><thead><tr><th class="name" style="text-align:left">Nhà cái</th><th>Mức</th><th>Tài</th><th>Xỉu</th></tr></thead><tbody>
+    ${o.ou.map(r=>`<tr><td class="name">${r.book}</td><td class="rk">${r.line||''}</td><td>${f(r.over)}</td><td>${f(r.under)}</td></tr>`).join("")}</tbody></table>`:'';
+  const nb=Math.max((o.h2h||[]).length,(o.ah||[]).length,(o.ou||[]).length);
+  const wrap=document.createElement("div");wrap.className="match";wrap.style.marginTop="10px";wrap.style.borderLeftColor="var(--neon2)";
+  wrap.innerHTML=`<div class="vh" style="color:var(--neon2)">▌ KÈO THẬT TỪ NHÀ CÁI — ${nb} công ty (tỉ lệ thập phân)</div>${h2h}${ah}${ou}
+    <div class="src">Đây là tỉ lệ THẬT lấy trực tiếp từ ${o.n_books} nhà cái qua API. ${d.value?'Đã khử biên + blend vào dự đoán trước trận.':'Trận đang đá → dự đoán dùng mô hình in-play; kèo này là kèo trước trận để tham khảo.'}</div>`;
+  box.appendChild(wrap);
+}
+
+async function tvRender(){
+  const box=document.getElementById("tvpanel");if(!box)return;
+  clearTimeout(tvLiveTimer);
+  if(!tvId){clearInterval(tvTicker);box.innerHTML='<div class="src">// chọn một trận bên dưới (bấm PHÂN TÍCH) hoặc nhập ID rồi bấm THEO DÕI.</div>';return;}
+  if(!box.querySelector("#tvreport")) box.innerHTML='<div class="src">[ ████░░░░ ] đang phân tích trực tiếp...</div>';
+  try{const d=await getJSON(`${API}/api/tv_live/${tvId}`);
+    if(d.detail){box.innerHTML='<div class="src err">! '+d.detail+'</div>';clearInterval(tvTicker);return;}
+    const fin=["FT","AET","PEN"].includes((d.status||'').toUpperCase());
+    box.innerHTML=`
+      <div class="row"><div>
+        <div class="league">${d.league} · ${d.status_long} · <span style="color:var(--bad)">${fin?'KẾT THÚC':'phút '+d.minute+"'"}</span></div>
+        <div class="teams" style="font-size:16px">${d.home.name}</div>
+        <div class="teams" style="font-size:16px">${d.away.name}</div>
+      </div><div class="score" style="font-size:24px">${d.score.home??0} : ${d.score.away??0}</div></div>
+      <div class="grid2" style="margin:6px 0">
+        <div class="cell"><div class="k">PHẠT GÓC</div><div class="v">${d.corners.home}-${d.corners.away} (tổng ${d.total_corners})</div></div>
+        <div class="cell"><div class="k">THẺ</div><div class="v">${d.cards.home_yellow+d.cards.away_yellow}🟨 ${d.cards.home_red+d.cards.away_red}🟥</div></div>
+      </div>
+      <div id="ana-ticker" class="term" style="font-size:11px;min-height:15px;margin:4px 0"></div>
+      <div id="tvreport"></div>`;
+    renderReport(document.getElementById("tvreport"),d);
+    renderRealOdds(d);
+    if(fin){clearInterval(tvTicker);const e=document.getElementById("ana-ticker");if(e)e.innerHTML='<span style="color:var(--dim)">// trận đã kết thúc — dừng phân tích trực tiếp.</span>';}
+    else{startTicker();tvLiveTimer=setTimeout(tvRender,20000);}  // tự phân tích lại mỗi 20s
+  }catch(e){box.innerHTML='<div class="src err">! '+e+'</div>';}
+}
+
+function pickTv(id){const el=document.getElementById("tvid");if(el)el.value=id;tvId=String(id);localStorage.setItem("tvId",tvId);tvRender();window.scrollTo({top:0,behavior:'smooth'});}
+const LIVE_S=["1H","2H","HT","ET","BT","P","LIVE","INT","SUSP"];
+const DONE_S=["FT","AET","PEN","AWD","WO"];
+function phase(m){const s=(m.status||'').toUpperCase();
+  if(LIVE_S.includes(s)||(m.minute>0&&!DONE_S.includes(s)))return 0;
+  if(DONE_S.includes(s))return 2; return 1;}
+function statusBadge(m){const p=phase(m);
+  if(p===0)return `<span style="color:var(--bad)">● ${m.minute?m.minute+"'":"LIVE"}</span>`;
+  if(p===2)return `<span style="color:var(--dim)">kết thúc</span>`;
+  return `<span style="color:var(--neon2)">${new Date(m.date).toLocaleString('vi',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</span>`;}
+
+async function tvLoadList(live){
+  const box=document.getElementById("tvlist");if(!box)return;
+  box.innerHTML='<div class="src">đang tải danh sách trận...</div>';
+  try{const d=await getJSON(`${API}/api/tv_matches?${live?'live=true':'date='+new Date().toISOString().slice(0,10)}`);
+    if(d.detail){box.innerHTML='<div class="src err">! '+d.detail+'</div>';return;}
+    if(!d.matches?.length){box.innerHTML='<div class="src">// không có trận '+(live?'đang đá':'hôm nay')+'.</div>';return;}
+    const ms=d.matches.slice().sort((a,b)=>phase(a)-phase(b)||(a.date||'').localeCompare(b.date||''));
+    box.innerHTML=`<div class="vh" style="margin:6px 0">▌ ${live?'TRẬN ĐANG ĐÁ':'TRẬN HÔM NAY'} (${ms.length}) — bấm để theo dõi liên tục</div>
+      <table><thead><tr><th>Trạng thái</th><th class="name" style="text-align:left">Trận</th><th>Giải</th><th>Tỉ số</th><th></th></tr></thead><tbody>
+      ${ms.map(m=>`<tr style="${phase(m)===0?'background:rgba(255,59,92,.06)':''}">
+        <td>${statusBadge(m)}</td>
+        <td class="name">${m.home.name} vs ${m.away.name}</td>
+        <td style="font-size:10px;color:var(--dim)">${m.league||''}</td>
+        <td class="rk">${m.goals.home??'-'}:${m.goals.away??'-'}</td>
+        <td><button onclick="pickTv(${m.fixture_id})" style="padding:4px 10px;font-size:11px">PHÂN TÍCH</button></td>
+      </tr>`).join("")}</tbody></table>`;
+  }catch(e){box.innerHTML='<div class="src err">! '+e+'</div>';}
+}
+
+async function loadLive(){
+  const v=document.getElementById("view");
+  v.innerHTML=`<div class="match" style="border-left-color:var(--neon2)">
+    <div class="vh" style="color:var(--neon2)">▌ TRỰC TIẾP 24/7 (diendanbongda.com) — bấm PHÂN TÍCH để theo dõi đến hết trận</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0">
+      <input id="tvid" value="${tvId}" placeholder="Nhập ID trận, vd 1499306"
+        style="flex:1;min-width:160px;font-family:inherit;background:var(--panel2);color:var(--neon);
+        border:1px solid rgba(0,255,156,.3);padding:8px;border-radius:4px">
+      <button onclick="setTvId()">THEO DÕI</button>
+      <button onclick="tvLoadList(true)">⚽ ĐANG ĐÁ</button>
+      <button onclick="tvLoadList(false)">📅 HÔM NAY</button></div>
+    <div id="tvpanel"></div>
+    <div id="tvlist"></div></div>`;
+  tvRender();
+  tvLoadList(false);   // tự tải danh sách trận hôm nay
+}
+
+async function liveTick(m){
+  const min=estMinute(m.date),gh=m.goals.home??0,ga=m.goals.away??0;
+  let u=`${API}/api/live_predict/${m.fixture_id}?home_id=${m.home.id}&away_id=${m.away.id}&gh=${gh}&ga=${ga}&minute=${min}`;
+  if(m.league_code) u+=`&code=${m.league_code}`;
+  try{const d=await getJSON(u);
+    const mn=document.getElementById("min-"+m.fixture_id); if(mn)mn.textContent=`phút ~${d.minute}'`;
+    const lp=document.getElementById("lp-"+m.fixture_id); if(!lp)return;
+    const p=d.probs,pk=d.prediction;
+    lp.innerHTML=`
+      ${lbar("Đội nhà thắng",p.home,pk==="home")}
+      ${lbar("Hòa",p.draw,pk==="draw")}
+      ${lbar("Đội khách thắng",p.away,pk==="away")}
+      <div class="src" style="margin-top:6px">⏱ còn ~${90-d.minute}' · bàn kỳ vọng còn lại: ${d.remaining_xg.home}–${d.remaining_xg.away}
+        · Tài 2.5 (cả trận): ${(d.over_2_5*100).toFixed(0)}%</div>
+      <div class="src flash" style="color:var(--neon)">▸ ${d.note.join(" ")}</div>`;
+  }catch(e){}
+}
+
+function matchCard(m,useCode){
+  const gh=m.goals.home??"–",ga=m.goals.away??"–";
+  const cArg=useCode?`'${code()}'`:"null";
+  return `<div class="match" id="m-${m.fixture_id}">
+    <div class="row"><div>
+      <div class="league">${m.league} · ${m.status}</div>
+      <div class="teams">${m.home.logo?`<img src="${m.home.logo}" onerror="this.style.display='none'">`:''}${m.home.name}</div>
+      <div class="teams">${m.away.logo?`<img src="${m.away.logo}" onerror="this.style.display='none'">`:''}${m.away.name}</div>
+    </div><div style="text-align:right">
+      <div class="score">${gh} : ${ga}</div>
+      <button class="scan-btn" onclick="scan(${m.fixture_id},${m.home.id},${m.away.id},${cArg})">PHÂN TÍCH</button>
+    </div></div>
+    <div class="panel" id="p-${m.fixture_id}"><div class="term" id="t-${m.fixture_id}"></div></div></div>`;
+}
+
+const BOOT=["[OK] nạp chỉ số sức mạnh mùa giải","[..] dựng ma trận Dixon-Coles",
+  "[..] mô phỏng Monte Carlo 10.000 trận","[..] chạy mô hình ML softmax",
+  "[..] đối chiếu lịch sử đối đầu","[OK] tổng hợp nhận định >>"];
+
+async function scan(fid,hid,aid,c){
+  const panel=document.getElementById("p-"+fid),term=document.getElementById("t-"+fid);
+  panel.style.display="block";term.textContent="";panel.querySelector('.report')?.remove();
+  let i=0;const tp=setInterval(()=>{term.textContent+=BOOT[i]+"\n";if(++i>=BOOT.length)clearInterval(tp);},200);
+  try{
+    let u=`${API}/api/predict/${fid}?home_id=${hid}&away_id=${aid}`;
+    if(c)u+=`&code=${c}`;
+    const d=await getJSON(u);
+    setTimeout(()=>{clearInterval(tp);
+      if(d.detail){term.innerHTML='<span class="err">! '+d.detail+'</span>';return;}
+      term.textContent="";renderReport(panel,d);},1200);
+  }catch(e){clearInterval(tp);term.innerHTML='<span class="err">! '+e+'</span>';}
+}
+
+function donut(cv,p){
+  new Chart(cv,{type:"doughnut",data:{labels:["Nhà","Hòa","Khách"],
+    datasets:[{data:[p.home,p.draw,p.away],backgroundColor:["#00ff9c","#ffb000","#00e0ff"],borderColor:"#05070a",borderWidth:2}]},
+    options:{cutout:"68%",plugins:{legend:{display:false}},animation:{animateRotate:true,duration:700}}});
+}
+function tierTag(t){const c=(t==="RẤT CAO"||t==="CAO")?"t-hi":t==="TRUNG BÌNH"?"t-mid":"t-lo";return `<span class="tag ${c}">${t}</span>`;}
+
+function marketBlock(d){
+  const mp=d.sources.market;
+  if(!mp){
+    return `<div class="match" style="margin-top:10px"><div class="src">
+      ⚠ KÈO THẬT: chưa lấy được — đang dùng <b style="color:var(--warn)">100% xác suất mô hình</b>.
+      Thêm ODDS_API_KEY (the-odds-api.com) vào .env để blend kèo nhà cái thật + tính value.</div></div>`;
+  }
+  const od=d.market_odds||{},raw=od.odds||{},val=d.value;
+  const cell=(k,nm)=>{
+    let vline="";
+    if(val){const v=val[k];const vc=v>0.05?'var(--neon)':v<-0.05?'var(--bad)':'var(--dim)';
+      vline=`<div style="font-size:10px;color:${vc}">value ${v>=0?'+':''}${(v*100).toFixed(1)}%</div>`;}
+    return `<div class="cell"><div class="k">${nm}</div>
+      <div class="v">${(mp[k]*100).toFixed(0)}% <span style="font-size:10px;color:var(--dim)">@${raw[k]||'-'}</span></div>${vline}</div>`;};
+  const wpct=d.model_informed?55:90;
+  const foot=val
+    ? `value dương = model nghĩ cao hơn nhà cái (có thể có giá trị, vẫn rủi ro). value âm = nhà cái đánh giá cao hơn.`
+    : `⚠ Giải này model THIẾU dữ liệu phong độ → ưu tiên kèo nhà cái (${wpct}%) và <b style="color:var(--warn)">ẩn value</b> vì lúc này value vô nghĩa. Hãy tin cột % kèo nhà cái ở trên.`;
+  return `<div class="match" style="margin-top:10px;border-left-color:var(--neon2)">
+    <div class="vh" style="color:var(--neon2)">▌ KÈO THẬT — ${od.bookmaker||'nhà cái'} (đã khử biên, blend ${wpct}% vào kết quả)</div>
+    <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
+      ${cell("home","NHÀ")}${cell("draw","HÒA")}${cell("away","KHÁCH")}</div>
+    <div class="src">${foot}</div>
+  </div>`;
+}
+
+function betBlock(mk){
+  if(!mk.over_under) return "";
+  const ou=mk.over_under, ah=mk.handicap, op=mk.ou_pick, ap=mk.ah_pick;
+  const ouRows=Object.keys(ou).map(L=>{const v=ou[L];const hi=v.over>=v.under;
+    return `<tr><td class="name">Tổng > ${L}</td>
+      <td style="color:${hi?'var(--neon)':'var(--dim)'}">${(v.over*100).toFixed(0)}%</td>
+      <td style="color:${!hi?'var(--neon)':'var(--dim)'}">${(v.under*100).toFixed(0)}%</td></tr>`;}).join("");
+  const ahRows=Object.keys(ah).sort((a,b)=>parseFloat(a)-parseFloat(b)).map(L=>{const v=ah[L];
+    return `<tr><td class="name">Nhà ${L}</td><td class="rk">${(v.home*100).toFixed(0)}%</td>
+      <td style="color:var(--dim)">${(v.push*100).toFixed(0)}%</td><td>${(v.away*100).toFixed(0)}%</td></tr>`;}).join("");
+  return `<div class="flex" style="margin-top:10px">
+    <div class="col"><div class="vh">▌ TÀI / XỈU</div>
+      <table><thead><tr><th class="name" style="text-align:left">Mức</th><th>TÀI</th><th>XỈU</th></tr></thead><tbody>${ouRows}</tbody></table>
+      <div class="src">→ Gợi ý: <span class="hot">${op.side} ${op.line} · ${(op.prob*100).toFixed(1)}%</span></div>
+    </div>
+    <div class="col"><div class="vh">▌ KÈO CHẤP (Asian Handicap)</div>
+      <table><thead><tr><th class="name" style="text-align:left">Mức (đội nhà)</th><th>Nhà</th><th>Hòa vốn</th><th>Khách</th></tr></thead><tbody>${ahRows}</tbody></table>
+      <div class="src">→ Gợi ý: <span class="hot">${ap.team} chấp ${ap.line>=0?'+':''}${ap.line} · ${(ap.cover*100).toFixed(1)}%</span></div>
+    </div></div>`;
+}
+function heat(grid){
+  let h='<div class="heat"><div class="lbl"></div>';
+  for(let j=0;j<6;j++)h+=`<div class="lbl">K${j}</div>`;
+  const mx=Math.max(...grid.flat());
+  for(let i=0;i<6;i++){h+=`<div class="lbl">N${i}</div>`;
+    for(let j=0;j<6;j++){const v=grid[i][j],a=(v/mx);
+      h+=`<div class="hc" style="background:rgba(0,255,156,${(0.08+a*0.92).toFixed(2)})" title="${i}-${j}: ${(v*100).toFixed(1)}%">${v>=0.04?(v*100).toFixed(0):""}</div>`;}}
+  return h+'</div>';
+}
+
+function mainPicks(mk){
+  if(!mk||!mk.ah_pick) return "";
+  const ah=mk.ah_pick, ou=mk.ou_pick, co=mk.corner;
+  const card=(label,pick,detail,prob)=>`
+    <div class="cell hot" style="text-align:center;padding:12px">
+      <div class="k">${label}</div>
+      <div class="v flash" style="font-size:18px">${pick}</div>
+      <div style="font-size:10px;color:var(--dim)">${detail}</div>
+      <div style="font-size:11px;color:var(--neon2)">${prob!=null?(prob*100).toFixed(0)+'%':''}</div>
+    </div>`;
+  return `<div class="vh" style="color:var(--warn);margin:6px 0">▌ 3 KÈO CHÍNH</div>
+    <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
+      ${co?card("KÈO GÓC (T/X "+co.line+")",co.pick,"~"+co.exp_corners+" góc",co.prob):card("KÈO GÓC","—","","")}
+      ${card("CƯỢC CHẤP",ah.side==="home"?"NHÀ":(ah.side==="away"?"KHÁCH":"—"),"chấp "+(ah.line>=0?'+':'')+ah.line,ah.cover)}
+      ${card("TÀI/XỈU "+ou.line,ou.side,"bàn thắng",ou.prob)}
+    </div>`;
+}
+
+function renderReport(panel,d){
+  const p=d.probabilities,pk=d.prediction,mk=d.market,mc=d.monte_carlo;
+  const id="dn"+d.fixture_id;
+  const src=d.sources;
+  const wrap=document.createElement("div");wrap.className="report";
+  wrap.innerHTML=`
+   ${mainPicks(mk)}
+   <div class="flex">
+     <div class="col" style="flex:0 0 auto">
+       <div class="donutbox ${d.confidence>=0.45?'win':''}"><canvas id="${id}"></canvas>
+         <div class="donutc"><b class="flash">${(d.confidence*100).toFixed(0)}%</b><span class="flash">${d.prediction_label.toUpperCase()}</span></div></div>
+       <div style="text-align:center;margin-top:6px">${tierTag(d.confidence_tier)}</div>
+     </div>
+     <div class="col">
+       <div class="grid2">
+         <div class="cell"><div class="k">xG KỲ VỌNG</div><div class="v">${d.expected_goals.home} – ${d.expected_goals.away}</div></div>
+         <div class="cell"><div class="k">MONTE CARLO 10k</div><div class="v">${(mc.home*100).toFixed(0)}/${(mc.draw*100).toFixed(0)}/${(mc.away*100).toFixed(0)}</div></div>
+         <div class="cell"><div class="k">TÀI/XỈU 2.5</div><div class="v">${mk.over_2_5>=mk.under_2_5?"TÀI":"XỈU"} ${(Math.max(mk.over_2_5,mk.under_2_5)*100).toFixed(0)}%</div></div>
+         <div class="cell"><div class="k">2 ĐỘI GHI BÀN</div><div class="v">${mk.btts_yes>=mk.btts_no?"CÓ":"KHÔNG"} ${(Math.max(mk.btts_yes,mk.btts_no)*100).toFixed(0)}%</div></div>
+       </div>
+       <div class="scores">${mk.top_scores.map((s,i)=>`<div class="sbox${i===0?' top':''}"><b>${s.score}</b><span>${(s.prob*100).toFixed(1)}%</span></div>`).join("")}</div>
+     </div>
+     <div class="col" style="flex:0 0 auto">
+       <div class="league">XÁC SUẤT TỈ SỐ (nhà × khách)</div>${heat(d.score_grid)}
+     </div>
+   </div>
+   ${marketBlock(d)}
+   ${betBlock(mk)}
+   <div class="verdict"><div class="vh">▌ NHẬN ĐỊNH CỦA ORACLE</div>
+     <ul>${d.verdict.map((v,i)=>`<li${i===0?' class="flash"':''}>${v}</li>`).join("")}</ul></div>
+   <div class="src">// tín hiệu: DixonColes ${src.ml?"+ ML":""} ${src.h2h?"+ H2H":""}
+     ${d.ratings.home?` · sức mạnh nhà[att ${d.ratings.home.att}/def ${d.ratings.home.def}] khách[att ${d.ratings.away.att}/def ${d.ratings.away.def}]`:""}
+     · chỉ tham khảo, không khuyến nghị cá cược</div>`;
+  panel.appendChild(wrap);
+  const cv=document.getElementById(id);if(cv&&window.Chart)donut(cv,p);
+  typeVerdict(wrap);   // gõ nhận định từng chữ kiểu terminal
+}
+
+async function loadRank(){
+  const v=document.getElementById("view");
+  v.innerHTML='<div class="empty">[ ▤ ] tính bảng xếp hạng...</div>';
+  try{const d=await getJSON(`${API}/api/standings?code=${code()}`);
+    if(d.detail){v.innerHTML='<div class="empty err">! '+d.detail+'</div>';return;}
+    v.innerHTML=`<table><thead><tr><th>#</th><th class="name" style="text-align:left">Đội</th>
+      <th>Trận</th><th>T</th><th>H</th><th>B</th><th>HS</th><th>Điểm</th></tr></thead><tbody>
+      ${d.table.map(r=>`<tr><td class="rk">${r.rank}</td><td class="name">${r.name}</td>
+        <td>${r.P}</td><td>${r.W}</td><td>${r.D}</td><td>${r.L}</td>
+        <td>${r.GD>0?'+':''}${r.GD}</td><td class="rk">${r.Pts}</td></tr>`).join("")}
+      </tbody></table>`;
+  }catch(e){v.innerHTML='<div class="empty err">! '+e+'</div>';}
+}
+
+async function loadValidate(){
+  const v=document.getElementById("view");
+  v.innerHTML='<div class="empty">[ ◎ ] kiểm định OUT-OF-SAMPLE: học từ quá khứ, dự đoán trận sau... (vài giây)</div>';
+  try{const d=await getJSON(`${API}/api/validate?code=${code()}`);
+    if(d.detail){v.innerHTML='<div class="empty err">! '+d.detail+'</div>';return;}
+    if(d.error){v.innerHTML='<div class="empty">// '+d.error+'</div>';return;}
+    const acc=(d.accuracy*100).toFixed(1),base=(d.baseline*100).toFixed(1),edge=d.edge*100;
+    v.innerHTML=`
+      <div class="bigstat">
+        <div class="bs"><div class="n">${acc}%</div><div class="l">CHÍNH XÁC OUT-OF-SAMPLE (${d.n} trận)</div></div>
+        <div class="bs"><div class="n" style="color:var(--neon2)">${base}%</div><div class="l">ĐOÁN MÒ (baseline)</div></div>
+        <div class="bs"><div class="n" style="color:${edge>=0?'var(--neon)':'var(--bad)'}">${edge>=0?'+':''}${edge.toFixed(1)}%</div><div class="l">LỢI THẾ THẬT</div></div>
+        <div class="bs"><div class="n" style="color:var(--warn)">${d.logloss}</div><div class="l">LOG-LOSS (thấp = tốt)</div></div>
+      </div>
+      <div class="match">
+        <div class="vh">▌ ĐƯỜNG HIỆU CHUẨN (CALIBRATION) — điểm nằm trên đường chéo = model trung thực</div>
+        <div style="max-width:420px;margin:auto"><canvas id="calib"></canvas></div>
+        <div class="src">Trục X: model nói bao nhiêu % · Trục Y: thực tế xảy ra bao nhiêu %. Sát đường chéo nghĩa là khi nói 60% thì đúng ~60%.</div>
+      </div>
+      <div class="match"><div class="src">// ${d.method}<br>// SO VỚI NHÀ CÁI: ${d.market.note}</div></div>`;
+    const pts=d.calibration.map(c=>({x:c.pred*100,y:c.obs*100,r:Math.min(3+c.count/15,12)}));
+    new Chart(document.getElementById("calib"),{
+      data:{datasets:[
+        {type:"line",label:"lý tưởng",data:[{x:0,y:0},{x:100,y:100}],borderColor:"#3f6b5a",borderDash:[5,5],pointRadius:0,borderWidth:1},
+        {type:"bubble",label:"model",data:pts,backgroundColor:"rgba(0,255,156,.6)",borderColor:"#00ff9c"}
+      ]},
+      options:{scales:{x:{min:0,max:100,title:{display:true,text:"Dự đoán %",color:"#3f6b5a"},ticks:{color:"#3f6b5a"},grid:{color:"rgba(0,255,156,.08)"}},
+        y:{min:0,max:100,title:{display:true,text:"Thực tế %",color:"#3f6b5a"},ticks:{color:"#3f6b5a"},grid:{color:"rgba(0,255,156,.08)"}}},
+        plugins:{legend:{labels:{color:"#b8ffe0"}}}}});
+  }catch(e){v.innerHTML='<div class="empty err">! '+e+'</div>';}
+}
+
+async function loadTrack(){
+  const v=document.getElementById("view");
+  v.innerHTML='<div class="empty">[ ▣ ] đối chiếu sổ kèo với kết quả thật...</div>';
+  try{const d=await getJSON(`${API}/api/track`);
+    const s=d.stats;
+    const accTxt=s.accuracy!=null?(s.accuracy*100).toFixed(1)+"%":"—";
+    const tierRows=Object.entries(s.by_tier||{}).map(([k,b])=>
+      `<tr><td class="name">${k}</td><td>${b.correct}</td><td>${b.total}</td><td class="rk">${(b.rate*100).toFixed(1)}%</td></tr>`).join("");
+    const rows=d.recent.map(r=>{
+      const res=r.result?`${r.result.score} (${{home:'Nhà',draw:'Hòa',away:'Khách'}[r.result.outcome]})`:'<span style="color:var(--dim)">chờ...</span>';
+      const ok=r.correct===true?'<span style="color:var(--neon)">✓</span>':r.correct===false?'<span style="color:var(--bad)">✗</span>':'';
+      const pk={home:'Nhà',draw:'Hòa',away:'Khách'}[r.pick];
+      return `<tr><td class="name">${r.home} vs ${r.away}</td><td>${pk} ${(r.confidence*100).toFixed(0)}%</td><td>${res}</td><td>${ok}</td></tr>`;
+    }).join("");
+    v.innerHTML=`
+      <div class="bigstat">
+        <div class="bs"><div class="n">${accTxt}</div><div class="l">TỈ LỆ TRÚNG TÍCH LŨY</div></div>
+        <div class="bs"><div class="n" style="color:var(--neon2)">${s.resolved}</div><div class="l">ĐÃ CÓ KẾT QUẢ</div></div>
+        <div class="bs"><div class="n" style="color:var(--warn)">${s.pending}</div><div class="l">ĐANG CHỜ ĐÁ</div></div>
+        <div class="bs"><div class="n">${s.total_logged}</div><div class="l">TỔNG ĐÃ GHI</div></div>
+      </div>
+      ${tierRows?`<div class="match"><div class="vh">▌ TỈ LỆ TRÚNG THEO MỨC TỰ TIN</div>
+        <table><thead><tr><th class="name" style="text-align:left">Mức</th><th>Đúng</th><th>Tổng</th><th>Tỉ lệ</th></tr></thead><tbody>${tierRows}</tbody></table></div>`:""}
+      <div class="match"><div class="vh">▌ NHẬT KÝ DỰ ĐOÁN (mới nhất)</div>
+        ${d.recent.length?`<table><thead><tr><th class="name" style="text-align:left">Trận</th><th>Dự đoán</th><th>Kết quả</th><th>✓/✗</th></tr></thead><tbody>${rows}</tbody></table>`
+        :'<div class="src">// chưa có dự đoán nào được ghi. Hãy vào tab TRẬN ĐẤU và bấm PHÂN TÍCH các trận SẮP ĐÁ — chúng sẽ tự được ghi vào sổ và đối chiếu khi đá xong.</div>'}</div>
+      <div class="src">// sổ này lưu vĩnh viễn (backend/track_log.json), không sửa hồi tố — đối chiếu tự động khi trận kết thúc. Đây mới là bằng chứng độ tin cậy thật theo thời gian.</div>`;
+  }catch(e){v.innerHTML='<div class="empty err">! '+e+'</div>';}
+}
+
+setTab("comp");
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# Thư viện cốt lõi để chạy tool (Poisson + Odds + H2H)
+# Đều là Python thuần -> cài được trên mọi phiên bản Python, không cần biên dịch.
+# (Không dùng uvicorn[standard] vì các gói phụ của nó cần biên dịch C,
+#  sẽ lỗi trên Python rất mới như 3.14.)
+fastapi
+uvicorn
+httpx
+python-dotenv

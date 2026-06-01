@@ -1,0 +1,8 @@
+# KHÔNG đẩy bí mật lên GitHub
+.env
+track_log.json
+ml_model.joblib
+__pycache__/
+*.pyc
+.venv/
+venv/
