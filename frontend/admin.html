@@ -282,6 +282,7 @@
             <th>#</th>
             <th>Username</th>
             <th>Vai trò</th>
+            <th>💎 Điểm</th>
             <th>Tạo lúc</th>
             <th>Login gần nhất</th>
             <th>Ghi chú</th>
@@ -290,6 +291,40 @@
         </thead>
         <tbody id="userTbody"></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<!-- Nạp điểm modal -->
+<div class="modal-bg" id="ptsModal">
+  <div class="modal">
+    <h3>💎 Nạp / điều chỉnh điểm</h3>
+    <p style="font-size:12px;color:var(--txt-dim);margin-bottom:12px">
+      User: <span style="color:var(--neon);font-weight:700" id="ptsUserName"></span>
+      · Hiện có: <span style="color:var(--warn);font-weight:700" id="ptsCurrent">0</span>đ
+    </p>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="btn btn-sm" onclick="quickAdd(50)" style="flex:1;min-width:60px">+50</button>
+      <button class="btn btn-sm" onclick="quickAdd(100)" style="flex:1;min-width:60px">+100</button>
+      <button class="btn btn-sm" onclick="quickAdd(500)" style="flex:1;min-width:60px">+500</button>
+      <button class="btn btn-sm" onclick="quickAdd(1000)" style="flex:1;min-width:60px">+1000</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:end">
+      <div style="flex:1">
+        <label style="display:block;font-size:10px;color:var(--neon-dim);letter-spacing:1.5px;margin-bottom:4px;font-weight:700">Số điểm</label>
+        <input type="number" id="ptsInput" placeholder="vd: 100 (cộng) hoặc -50 (trừ)" step="1"/>
+      </div>
+      <div>
+        <label style="display:block;font-size:10px;color:var(--neon-dim);letter-spacing:1.5px;margin-bottom:4px;font-weight:700">Cách áp dụng</label>
+        <select id="ptsMode">
+          <option value="add">Cộng/trừ thêm</option>
+          <option value="set">Đặt giá trị</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" style="background:var(--panel2);color:var(--txt-dim);border:1px solid var(--line);box-shadow:none" onclick="closePtsModal()">HỦY</button>
+      <button class="btn btn-sm" onclick="submitPts()">▸ XÁC NHẬN</button>
     </div>
   </div>
 </div>
@@ -360,22 +395,29 @@ async function loadUsers(){
       tb.innerHTML = '<tr><td colspan="7" class="empty">// chưa có user nào</td></tr>';
       return;
     }
-    tb.innerHTML = users.map(u => `
+    tb.innerHTML = users.map(u => {
+      const pts = u.points || 0;
+      const ptsColor = pts > 100 ? 'var(--neon)' : pts > 0 ? 'var(--warn)' : 'var(--bad)';
+      const safeName = escapeHtml(u.username).replace(/'/g,"\\'");
+      return `
       <tr>
         <td><b style="color:var(--neon2)">${u.id}</b></td>
         <td><b style="color:var(--txt)">${escapeHtml(u.username)}</b></td>
         <td><span class="role-badge role-${u.role}">${u.role}</span></td>
+        <td style="text-align:center"><b style="color:${ptsColor};font-size:14px">💎 ${pts}</b></td>
         <td style="font-size:11px;color:var(--txt-dim)">${fmtTime(u.created_at)}</td>
         <td style="font-size:11px;color:var(--txt-dim)">${fmtTime(u.last_login)}</td>
-        <td style="font-size:11px;color:var(--txt-dim);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(u.note)||'<span style="color:var(--dim)">—</span>'}</td>
+        <td style="font-size:11px;color:var(--txt-dim);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(u.note)||'<span style="color:var(--dim)">—</span>'}</td>
         <td>
           <div class="actions" style="justify-content:flex-end">
-            <button class="btn btn-sm btn-warn" onclick="openPwModal(${u.id},'${escapeHtml(u.username).replace(/'/g,"\\'")}')">🔑 ĐỔI MK</button>
+            <button class="btn btn-sm" style="background:linear-gradient(135deg,#3498db,#2980b9);color:#fff;box-shadow:0 2px 10px rgba(52,152,219,.3)" onclick="openPtsModal(${u.id},'${safeName}',${pts})">💎 NẠP</button>
+            <button class="btn btn-sm btn-warn" onclick="openPwModal(${u.id},'${safeName}')">🔑 ĐỔI MK</button>
             <button class="btn btn-sm" onclick="toggleRole(${u.id},'${u.role==='admin'?'user':'admin'}')">⇄ ${u.role==='admin'?'→ USER':'→ ADMIN'}</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${escapeHtml(u.username).replace(/'/g,"\\'")}')">✗ XÓA</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${safeName}')">✗ XÓA</button>
           </div>
         </td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
   }catch(e){
     alertBox('Lỗi tải user: '+e, false);
   }
@@ -441,8 +483,40 @@ async function submitPw(){
   else alertBox(j.msg||'Lỗi', false);
 }
 
+// ========== Modal nạp điểm ==========
+let ptsUserId = null;
+function openPtsModal(id, name, current){
+  ptsUserId = id;
+  document.getElementById('ptsUserName').textContent = name;
+  document.getElementById('ptsCurrent').textContent = current;
+  document.getElementById('ptsInput').value = '';
+  document.getElementById('ptsMode').value = 'add';
+  document.getElementById('ptsModal').classList.add('show');
+  setTimeout(()=>document.getElementById('ptsInput').focus(), 100);
+}
+function closePtsModal(){
+  document.getElementById('ptsModal').classList.remove('show');
+  ptsUserId = null;
+}
+function quickAdd(v){
+  document.getElementById('ptsInput').value = v;
+  document.getElementById('ptsMode').value = 'add';
+  submitPts();
+}
+async function submitPts(){
+  const delta = parseInt(document.getElementById('ptsInput').value, 10);
+  const mode = document.getElementById('ptsMode').value;
+  if(isNaN(delta)){ alert('Nhập số hợp lệ'); return; }
+  const j = await postForm(API+'/api/admin/users/points', {id:ptsUserId, delta, mode});
+  closePtsModal();
+  if(j.ok){ alertBox(j.msg + ' · còn ' + j.points + 'đ', true); loadAll(); }
+  else alertBox(j.msg||'Lỗi', false);
+}
+
 // ESC để đóng modal
-document.addEventListener('keydown', e=>{ if(e.key==='Escape') closePwModal(); });
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape'){ closePwModal(); closePtsModal(); }
+});
 
 function loadAll(){ loadMe(); loadStats(); loadUsers(); }
 loadAll();

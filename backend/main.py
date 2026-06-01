@@ -4,7 +4,7 @@ Chạy:  uvicorn backend.main:app --reload   (từ thư mục gốc project)
 Docs tự động: http://127.0.0.1:8000/docs
 """
 from datetime import date as _date
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -113,10 +113,26 @@ def _blend(*sources):
 
 
 @app.get("/api/predict/{fixture_id}")
-def predict_fixture(fixture_id: int, home_id: int, away_id: int,
+def predict_fixture(request: Request, fixture_id: int, home_id: int, away_id: int,
                     code: str | None = None, custom_id: str | None = None):
     """Dự đoán dùng ENGINE (Dixon-Coles + ML + Monte Carlo) fit từ cả mùa giải `code`.
-    Nếu không có code, quay về model cũ (last-10 qua API)."""
+    Nếu không có code, quay về model cũ (last-10 qua API).
+    PAYWALL: user phải trả điểm; admin xem free; user mua rồi → xem lại free."""
+    # ===== POINTS PAYWALL =====
+    try:
+        from . import users as _udb
+        user = getattr(request.state, "user", None)
+        if user and user["role"] != "admin":
+            if not _udb.has_paid(user["id"], fixture_id):
+                cost = _udb.match_cost(fixture_id)
+                ok, msg, _bal = _udb.mark_paid(user["id"], fixture_id, cost)
+                if not ok:
+                    raise HTTPException(status_code=402, detail=msg)
+    except HTTPException:
+        raise
+    except Exception as _e:
+        # Không để paywall break dự đoán nếu lỗi nội bộ
+        print(f"[paywall] warning: {_e}")
     # --- ENGINE mode (khuyên dùng, chỉ tốn 1 request mùa giải đã cache) ---
     if code and hasattr(provider, "get_competition_matches"):
         try:
@@ -662,9 +678,26 @@ def _logout(request: Request):
 
 @app.get("/api/me")
 def _me(request: Request):
-    """Trả info user đang đăng nhập (bất kỳ role nào)."""
+    """Trả info user đang đăng nhập (bất kỳ role nào) + số điểm."""
     u = request.state.user
-    return {"id": u["id"], "username": u["username"], "role": u["role"]}
+    pts = users_db.get_points(u["id"])
+    return {"id": u["id"], "username": u["username"], "role": u["role"], "points": pts}
+
+
+@app.get("/api/match_cost/{fixture_id}")
+def _match_cost(request: Request, fixture_id: int):
+    """Trả cost xem phân tích + đã thanh toán chưa."""
+    u = request.state.user
+    cost = users_db.match_cost(fixture_id)
+    is_admin = u["role"] == "admin"
+    paid = is_admin or users_db.has_paid(u["id"], fixture_id)
+    return {
+        "fixture_id": fixture_id,
+        "cost": cost,
+        "paid": paid,
+        "is_admin": is_admin,
+        "points": users_db.get_points(u["id"]),
+    }
 
 
 # ============ ADMIN PAGE ============
@@ -726,6 +759,20 @@ def _admin_user_role(request: Request, id: int = Form(...), role: str = Form("us
         return {"ok": False, "msg": "Không thể tự hạ quyền của chính bạn"}
     ok, msg = users_db.update_role(id, role)
     return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/admin/users/points")
+def _admin_user_points(
+    id: int = Form(...),
+    delta: int = Form(0),
+    mode: str = Form("add"),   # "add" hoặc "set"
+):
+    """Cộng/trừ điểm (mode=add, delta có thể âm) hoặc set giá trị tuyệt đối (mode=set)."""
+    if mode == "set":
+        ok, msg = users_db.set_points(id, delta)
+    else:
+        ok, msg = users_db.add_points(id, delta)
+    return {"ok": ok, "msg": msg, "points": users_db.get_points(id)}
 
 
 # ============ FRONTEND STATIC (đặt CUỐI cùng) ============

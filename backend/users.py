@@ -27,7 +27,7 @@ def _conn():
 
 
 def init_db():
-    """Tạo bảng nếu chưa có."""
+    """Tạo bảng + migration nếu schema cũ."""
     with _conn() as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS users(
@@ -38,7 +38,8 @@ def init_db():
             role TEXT NOT NULL DEFAULT 'user',
             created_at INTEGER NOT NULL,
             last_login INTEGER,
-            note TEXT
+            note TEXT,
+            points INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS sessions(
             token TEXT PRIMARY KEY,
@@ -49,7 +50,23 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+        CREATE TABLE IF NOT EXISTS user_predictions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            fixture_id INTEGER NOT NULL,
+            cost INTEGER NOT NULL,
+            paid_at INTEGER NOT NULL,
+            UNIQUE(user_id, fixture_id),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_uprd_user ON user_predictions(user_id);
         """)
+        # Migration: thêm cột points nếu users đã tồn tại từ trước nhưng chưa có
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN points INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # column đã tồn tại
 
 
 def _hash_password(password: str, salt: str = None):
@@ -106,7 +123,7 @@ def verify_user(username: str, password: str):
 def list_users():
     with _conn() as c:
         rows = c.execute(
-            "SELECT id, username, role, created_at, last_login, note FROM users ORDER BY id"
+            "SELECT id, username, role, created_at, last_login, note, points FROM users ORDER BY id"
         ).fetchall()
     return [
         {
@@ -116,6 +133,7 @@ def list_users():
             "created_at": r[3],
             "last_login": r[4],
             "note": r[5] or "",
+            "points": r[6] or 0,
         }
         for r in rows
     ]
@@ -124,12 +142,40 @@ def list_users():
 def get_user(user_id: int):
     with _conn() as c:
         r = c.execute(
-            "SELECT id, username, role, created_at, last_login, note FROM users WHERE id=?",
+            "SELECT id, username, role, created_at, last_login, note, points FROM users WHERE id=?",
             (user_id,),
         ).fetchone()
     if not r:
         return None
-    return {"id": r[0], "username": r[1], "role": r[2], "created_at": r[3], "last_login": r[4], "note": r[5] or ""}
+    return {
+        "id": r[0], "username": r[1], "role": r[2],
+        "created_at": r[3], "last_login": r[4],
+        "note": r[5] or "", "points": r[6] or 0,
+    }
+
+
+def get_points(user_id: int) -> int:
+    with _conn() as c:
+        r = c.execute("SELECT points FROM users WHERE id=?", (user_id,)).fetchone()
+    return int(r[0]) if r else 0
+
+
+def add_points(user_id: int, delta: int):
+    """Cộng/trừ điểm. Không cho âm."""
+    with _conn() as c:
+        cur = c.execute("SELECT points FROM users WHERE id=?", (user_id,)).fetchone()
+        if not cur:
+            return False, "User không tồn tại"
+        new_val = max(0, int(cur[0] or 0) + int(delta))
+        c.execute("UPDATE users SET points=? WHERE id=?", (new_val, user_id))
+    return True, f"OK (mới: {new_val}đ)"
+
+
+def set_points(user_id: int, value: int):
+    value = max(0, int(value))
+    with _conn() as c:
+        c.execute("UPDATE users SET points=? WHERE id=?", (value, user_id))
+    return True, f"Đã set {value}đ"
 
 
 def delete_user(user_id: int):
@@ -235,9 +281,72 @@ def stats():
         admins = c.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
         active_sessions = c.execute("SELECT COUNT(*) FROM sessions WHERE expires_at>?", (now,)).fetchone()[0]
         recent_logins = c.execute("SELECT COUNT(*) FROM users WHERE last_login>?", (now - 86400,)).fetchone()[0]
+        total_points = c.execute("SELECT COALESCE(SUM(points),0) FROM users").fetchone()[0]
+        total_unlocks = c.execute("SELECT COUNT(*) FROM user_predictions").fetchone()[0]
     return {
         "total_users": total,
         "admins": admins,
         "active_sessions": active_sessions,
         "logins_24h": recent_logins,
+        "total_points": total_points,
+        "total_unlocks": total_unlocks,
     }
+
+
+# ============== MATCH COST + PAYMENT TRACKING ==============
+
+def match_cost(fixture_id) -> int:
+    """Cost xem phân tích 1 trận: deterministic random 5-20đ theo fixture_id.
+    Cùng fixture_id → cùng cost (không thay đổi)."""
+    try:
+        fid = int(fixture_id)
+    except (TypeError, ValueError):
+        return 10  # fallback
+    # Hash deterministic: hash số nguyên đơn giản
+    h = (fid * 2654435761) & 0xFFFFFFFF   # Knuth multiplicative
+    return 5 + (h % 16)   # 5..20
+
+
+def has_paid(user_id: int, fixture_id: int) -> bool:
+    """User đã trả phí cho fixture này chưa? (mua rồi xem lại free)."""
+    with _conn() as c:
+        r = c.execute(
+            "SELECT 1 FROM user_predictions WHERE user_id=? AND fixture_id=?",
+            (user_id, fixture_id),
+        ).fetchone()
+    return r is not None
+
+
+def mark_paid(user_id: int, fixture_id: int, cost: int):
+    """Trừ điểm + ghi nhận đã mua. Trả (ok, msg, points_left)."""
+    with _conn() as c:
+        # Lock row
+        cur = c.execute("SELECT points FROM users WHERE id=?", (user_id,)).fetchone()
+        if not cur:
+            return False, "User không tồn tại", 0
+        bal = int(cur[0] or 0)
+        if bal < cost:
+            return False, f"Thiếu điểm — cần {cost}đ, có {bal}đ", bal
+        new_bal = bal - cost
+        c.execute("UPDATE users SET points=? WHERE id=?", (new_bal, user_id))
+        # Insert paid record (UNIQUE bảo vệ trùng)
+        try:
+            c.execute(
+                "INSERT INTO user_predictions(user_id,fixture_id,cost,paid_at) VALUES(?,?,?,?)",
+                (user_id, fixture_id, cost, int(time.time())),
+            )
+        except sqlite3.IntegrityError:
+            # Đã có record (race condition), rollback trừ điểm
+            c.execute("UPDATE users SET points=? WHERE id=?", (bal, user_id))
+            return True, "Đã mua trước đó", bal
+    return True, "Đã trừ điểm thành công", new_bal
+
+
+def user_unlocks(user_id: int, limit: int = 50):
+    """Liệt kê các trận user đã mua phân tích."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT fixture_id, cost, paid_at FROM user_predictions WHERE user_id=? ORDER BY paid_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return [{"fixture_id": r[0], "cost": r[1], "paid_at": r[2]} for r in rows]
