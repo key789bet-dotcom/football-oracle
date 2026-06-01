@@ -549,8 +549,82 @@ def debug(path: str = "/matches/list-live", params: str = "sport=football"):
             "shape": shape(raw), "raw": raw}
 
 
+# ==================== ĐĂNG NHẬP (khóa trang cho riêng mình) ====================
+# Đặt SITE_PASSWORD trong .env để bật khóa. Không đặt -> trang mở bình thường (dev).
+import hmac as _hmac, hashlib as _hashlib
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+
+SITE_PASSWORD = os.getenv("SITE_PASSWORD", "")
+_OPEN_PATHS = {"/login", "/auth", "/logout", "/favicon.ico", "/health"}
+
+
+def _auth_token() -> str:
+    return _hmac.new(("oracle::" + SITE_PASSWORD).encode(), b"v1", _hashlib.sha256).hexdigest()
+
+
+_LOGIN_HTML = """<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Đăng nhập · FOOTBALL ORACLE</title>
+<style>
+body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+font-family:'Courier New',monospace;background:#05070a;color:#00ff9c;
+background-image:linear-gradient(rgba(0,255,156,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,156,.05) 1px,transparent 1px);background-size:32px 32px}
+.box{border:1px solid rgba(0,255,156,.3);border-radius:8px;padding:30px 28px;width:320px;
+background:linear-gradient(180deg,rgba(0,255,156,.06),transparent);box-shadow:0 0 30px rgba(0,255,156,.15)}
+h1{font-size:18px;letter-spacing:2px;margin:0 0 4px;text-shadow:0 0 8px rgba(0,255,156,.6)}
+.sub{font-size:11px;color:#3f6b5a;margin-bottom:18px;letter-spacing:1px}
+input{width:100%;box-sizing:border-box;font-family:inherit;background:#0d141b;color:#00ff9c;
+border:1px solid rgba(0,255,156,.3);padding:11px;border-radius:5px;font-size:14px;margin-bottom:12px}
+button{width:100%;font-family:inherit;background:#00ff9c;color:#021;border:0;padding:11px;
+border-radius:5px;font-size:14px;font-weight:700;letter-spacing:1px;cursor:pointer}
+button:hover{box-shadow:0 0 14px rgba(0,255,156,.6)}
+</style></head><body>
+<form class="box" method="post" action="/auth">
+  <h1>⛧ FOOTBALL ORACLE</h1>
+  <div class="sub">Khu vực riêng tư · nhập mật khẩu để vào</div>
+  <!--ERR-->
+  <input type="password" name="password" placeholder="Mật khẩu" autofocus>
+  <button type="submit">ĐĂNG NHẬP</button>
+</form></body></html>"""
+
+
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    if not SITE_PASSWORD:                      # chưa đặt mật khẩu -> không khóa
+        return await call_next(request)
+    path = request.url.path
+    if path in _OPEN_PATHS or request.cookies.get("oracle_auth") == _auth_token():
+        return await call_next(request)
+    if path.startswith("/api"):
+        return JSONResponse({"detail": "Chưa đăng nhập"}, status_code=401)
+    return RedirectResponse("/login")
+
+
+@app.get("/login", response_class=HTMLResponse)
+def _login_page():
+    return _LOGIN_HTML.replace("<!--ERR-->", "")
+
+
+@app.post("/auth")
+async def _auth(request: Request):
+    form = await request.form()
+    if SITE_PASSWORD and _hmac.compare_digest(str(form.get("password", "")), SITE_PASSWORD):
+        r = RedirectResponse("/", status_code=303)
+        r.set_cookie("oracle_auth", _auth_token(), httponly=True, max_age=2592000, samesite="lax")
+        return r
+    err = '<div style="color:#ff3b5c;font-size:12px;margin-bottom:10px">✗ Sai mật khẩu</div>'
+    return HTMLResponse(_LOGIN_HTML.replace("<!--ERR-->", err), status_code=401)
+
+
+@app.get("/logout")
+def _logout():
+    r = RedirectResponse("/login")
+    r.delete_cookie("oracle_auth")
+    return r
+
+
 # Phục vụ frontend tĩnh (đặt cuối để không che các route /api)
-import os
 _frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 if os.path.isdir(_frontend_dir):
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
