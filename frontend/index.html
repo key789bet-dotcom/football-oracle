@@ -579,7 +579,15 @@ function lbar(label,val,win){const p=(val*100).toFixed(1);
     <div class="${win?'bar-fill win':''}" style="height:100%;width:${p}%;background:${win?'linear-gradient(90deg,var(--neon),#7dff00)':'linear-gradient(90deg,var(--neon2),var(--neon))'}"></div></div></div>`;}
 
 let tvId=localStorage.getItem("tvId")||"";
-function setTvId(){const el=document.getElementById("tvid");tvId=(el.value||"").trim();localStorage.setItem("tvId",tvId);tvRender();}
+async function setTvId(){
+  const el=document.getElementById("tvid");
+  const newId=(el.value||"").trim();
+  if(!newId){tvId="";localStorage.setItem("tvId","");tvRender();return;}
+  // Confirm cost trước khi theo dõi (nếu chưa paid)
+  const ok = await confirmCost(newId);
+  if(!ok) return;
+  tvId=newId; localStorage.setItem("tvId",tvId); tvRender();
+}
 let tvTicker=null, tvLiveTimer=null, verdictTyper=null;
 function typeVerdict(scope){
   clearTimeout(verdictTyper);
@@ -633,8 +641,20 @@ async function tvRender(){
   clearTimeout(tvLiveTimer);
   if(!tvId){clearInterval(tvTicker);box.innerHTML='<div class="src">// chọn một trận bên dưới (bấm PHÂN TÍCH) hoặc nhập ID rồi bấm THEO DÕI.</div>';return;}
   if(!box.querySelector("#tvreport")) box.innerHTML='<div class="src">[ ████░░░░ ] đang phân tích trực tiếp...</div>';
-  try{const d=await getJSON(`${API}/api/tv_live/${tvId}`);
+  try{
+    const r=await fetch(`${API}/api/tv_live/${tvId}`);
+    if(r.status===402){
+      const d=await r.json();
+      box.innerHTML='<div class="src err">! '+(d.detail||'Thiếu điểm để xem phân tích')+' — liên hệ ADMIN nạp thêm</div>';
+      clearInterval(tvTicker);
+      // Reset tvId để không tự load lại
+      tvId=''; localStorage.setItem("tvId",'');
+      return;
+    }
+    const d=await r.json();
     if(d.detail){box.innerHTML='<div class="src err">! '+d.detail+'</div>';clearInterval(tvTicker);return;}
+    // Refresh điểm (vì có thể vừa trừ)
+    loadMe();
     const fin=["FT","AET","PEN"].includes((d.status||'').toUpperCase());
     box.innerHTML=`
       <div class="row"><div>
@@ -655,7 +675,15 @@ async function tvRender(){
   }catch(e){box.innerHTML='<div class="src err">! '+e+'</div>';}
 }
 
-function pickTv(id){const el=document.getElementById("tvid");if(el)el.value=id;tvId=String(id);localStorage.setItem("tvId",tvId);tvRender();window.scrollTo({top:0,behavior:'smooth'});}
+async function pickTv(id){
+  const ok = await confirmCost(id);
+  if(!ok) return;
+  const el=document.getElementById("tvid");
+  if(el) el.value=id;
+  tvId=String(id); localStorage.setItem("tvId",tvId);
+  tvRender();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
 const LIVE_S=["1H","2H","HT","ET","BT","P","LIVE","INT","SUSP"];
 const DONE_S=["FT","AET","PEN","AWD","WO"];
 function phase(m){const s=(m.status||'').toUpperCase();

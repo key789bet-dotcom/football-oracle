@@ -118,21 +118,7 @@ def predict_fixture(request: Request, fixture_id: int, home_id: int, away_id: in
     """Dự đoán dùng ENGINE (Dixon-Coles + ML + Monte Carlo) fit từ cả mùa giải `code`.
     Nếu không có code, quay về model cũ (last-10 qua API).
     PAYWALL: user phải trả điểm; admin xem free; user mua rồi → xem lại free."""
-    # ===== POINTS PAYWALL =====
-    try:
-        from . import users as _udb
-        user = getattr(request.state, "user", None)
-        if user and user["role"] != "admin":
-            if not _udb.has_paid(user["id"], fixture_id):
-                cost = _udb.match_cost(fixture_id)
-                ok, msg, _bal = _udb.mark_paid(user["id"], fixture_id, cost)
-                if not ok:
-                    raise HTTPException(status_code=402, detail=msg)
-    except HTTPException:
-        raise
-    except Exception as _e:
-        # Không để paywall break dự đoán nếu lỗi nội bộ
-        print(f"[paywall] warning: {_e}")
+    _charge_match(request, fixture_id)
     # --- ENGINE mode (khuyên dùng, chỉ tốn 1 request mùa giải đã cache) ---
     if code and hasattr(provider, "get_competition_matches"):
         try:
@@ -270,11 +256,34 @@ def engine_to_predictor(m: dict) -> dict:
                       "away": {"id": m.get("away", {}).get("id")}}}
 
 
+def _charge_match(request: Request, fixture_id: int):
+    """Helper paywall — trừ điểm user (admin free, đã mua → free).
+    Raise HTTPException(402) nếu thiếu điểm. Trả về (cost, paid_now) để log nếu cần."""
+    try:
+        from . import users as _udb
+        user = getattr(request.state, "user", None)
+        if not user or user["role"] == "admin":
+            return 0, False
+        if _udb.has_paid(user["id"], fixture_id):
+            return 0, False
+        cost = _udb.match_cost(fixture_id)
+        ok, msg, _bal = _udb.mark_paid(user["id"], fixture_id, cost)
+        if not ok:
+            raise HTTPException(status_code=402, detail=msg)
+        return cost, True
+    except HTTPException:
+        raise
+    except Exception as _e:
+        print(f"[paywall] warning: {_e}")
+        return 0, False
+
+
 @app.get("/api/live_predict/{fixture_id}")
-def live_predict(fixture_id: int, home_id: int, away_id: int,
+def live_predict(request: Request, fixture_id: int, home_id: int, away_id: int,
                  gh: int = 0, ga: int = 0, minute: int = 0, code: str | None = None):
     """Xác suất IN-PLAY: cập nhật theo tỉ số hiện tại (gh-ga) và phút đã đá.
     Gọi lại mỗi phút để có phân tích liên tục."""
+    _charge_match(request, fixture_id)
     # bàn kỳ vọng cả trận: dùng chỉ số giải nếu có, không thì mặc định
     lh, la = 1.35, 1.15
     if code:
@@ -341,8 +350,10 @@ def tv_matches(date: str | None = None, live: bool = False):
 
 
 @app.get("/api/tv_live/{fixture_id}")
-def tv_live(fixture_id: int):
-    """Phân tích IN-PLAY theo PHÚT THẬT từ thethaoviet.vip (gọi lại mỗi phút)."""
+def tv_live(request: Request, fixture_id: int):
+    """Phân tích IN-PLAY theo PHÚT THẬT từ thethaoviet.vip (gọi lại mỗi phút).
+    PAYWALL: trừ điểm user (admin free, đã mua xem lại free)."""
+    _charge_match(request, fixture_id)
     try:
         m = thethaoviet_client.get_detail(fixture_id)
     except Exception as e:
