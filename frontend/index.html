@@ -513,11 +513,11 @@
 </header>
 
 <div class="controls">
-  <button id="b-comp" class="active" onclick="setTab('comp')">▦ TRẬN ĐẤU</button>
-  <button id="b-rank" onclick="setTab('rank')">▤ BXH</button>
+  <button id="b-live" class="active" onclick="setTab('live')">◉ LIVE</button>
   <button id="b-bt" onclick="setTab('bt')">◎ KIỂM ĐỊNH</button>
   <button id="b-track" onclick="setTab('track')">▣ SỔ KÈO</button>
-  <button id="b-live" onclick="setTab('live')">◉ LIVE</button>
+  <button id="b-comp" onclick="setTab('comp')">▦ TRẬN ĐẤU</button>
+  <button id="b-rank" onclick="setTab('rank')">▤ BXH</button>
   <select id="comp" onchange="reload()">
     <option value="WC">🌍 World Cup 2026</option>
     <option value="BSA">🇧🇷 VĐQG Brazil</option>
@@ -962,7 +962,7 @@ async function loadTrack(){
   }catch(e){}
 })();
 
-setTab("comp");
+setTab("live");
 </script>
 </body>
 </html>
