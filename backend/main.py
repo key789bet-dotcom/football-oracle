@@ -590,7 +590,10 @@ from . import users as users_db
 users_db.bootstrap_admin()
 
 _COOKIE_NAME = "oracle_session"
-_OPEN_PATHS = {"/login", "/auth", "/logout", "/favicon.ico", "/health"}
+# Path mở (không cần login): landing, public API, login flow, assets
+_OPEN_PATHS = {"/", "/login", "/auth", "/logout", "/favicon.ico", "/health",
+               "/landing.html"}
+_OPEN_PREFIXES = ("/api/public/",)
 _frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 
 
@@ -618,8 +621,8 @@ def _render_login(error: str = "", status_code: int = 200):
 @app.middleware("http")
 async def _auth_gate(request: Request, call_next):
     path = request.url.path
-    # Path mở: login/auth/logout/favicon/health → cho qua
-    if path in _OPEN_PATHS:
+    # Path mở: landing, login, public api, favicon, health → cho qua
+    if path in _OPEN_PATHS or any(path.startswith(p) for p in _OPEN_PREFIXES):
         return await call_next(request)
     user = _current_user(request)
     # Admin paths cần role admin
@@ -665,7 +668,7 @@ async def _auth(
         return _render_login("Sai tài khoản hoặc mật khẩu", status_code=401)
     ua = request.headers.get("user-agent", "")[:200]
     token, exp = users_db.create_session(user["id"], days=30, user_agent=ua)
-    target = "/admin" if user["role"] == "admin" else "/"
+    target = "/admin" if user["role"] == "admin" else "/app"
     r = RedirectResponse(target, status_code=303)
     r.set_cookie(
         _COOKIE_NAME, token,
@@ -673,6 +676,64 @@ async def _auth(
         secure=False,  # đổi True nếu chỉ HTTPS
     )
     return r
+
+
+# ============ ROOT + APP ROUTES ============
+
+@app.get("/", response_class=HTMLResponse)
+def _root(request: Request):
+    """Trang root: nếu đã đăng nhập → /app; chưa → landing page public."""
+    if _current_user(request):
+        return RedirectResponse("/app")
+    landing = os.path.join(_frontend_dir, "landing.html")
+    if os.path.isfile(landing):
+        return FileResponse(landing)
+    return HTMLResponse("<h1>FOOTBALL ORACLE</h1><a href='/login'>Đăng nhập</a>")
+
+
+@app.get("/app", response_class=HTMLResponse)
+def _app_page():
+    """Trang app chính (middleware đã verify auth)."""
+    return FileResponse(os.path.join(_frontend_dir, "index.html"))
+
+
+# ============ PUBLIC API (không cần đăng nhập) ============
+
+@app.get("/api/public/stats")
+def _public_stats():
+    """Stats cho landing page: accuracy + total predictions + user count."""
+    try:
+        st = tracker.stats()
+        usr = users_db.stats()
+        return {
+            "accuracy": st.get("accuracy"),
+            "total_predictions": st.get("total_logged", 0),
+            "resolved": st.get("resolved", 0),
+            "pending": st.get("pending", 0),
+            "total_users": usr.get("total_users", 0),
+        }
+    except Exception as e:
+        return {"accuracy": None, "total_predictions": 0, "resolved": 0, "pending": 0, "total_users": 0, "error": str(e)}
+
+
+@app.get("/api/public/leaderboard")
+def _public_leaderboard():
+    """Top 15 prediction gần đây để show track record (giấu sensitive info)."""
+    try:
+        rows = tracker.recent(15)
+        items = []
+        for r in (rows or []):
+            items.append({
+                "home": r.get("home", ""),
+                "away": r.get("away", ""),
+                "pick": r.get("pick"),
+                "confidence": r.get("confidence"),
+                "result": r.get("result"),
+                "correct": r.get("correct"),
+            })
+        return {"items": items}
+    except Exception as e:
+        return {"items": [], "error": str(e)}
 
 
 @app.get("/logout")

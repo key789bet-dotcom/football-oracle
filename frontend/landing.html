@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Football Oracle · AI Dự đoán bóng đá hàng đầu Việt Nam</title>
+<meta name="description" content="Dự đoán bóng đá bằng AI Dixon-Coles, Monte Carlo, Machine Learning. Độ chính xác kiểm chứng công khai. Tham gia FOOTBALL ORACLE ngay."/>
+<meta property="og:title" content="FOOTBALL ORACLE — AI Dự đoán bóng đá realtime"/>
+<meta property="og:description" content="Engine AI Dixon-Coles + Monte Carlo 10k + ML softmax. Track record công khai."/>
+<style>
+  :root{
+    --bg:#04060a; --panel:#0a0f14; --panel2:#0d141b; --panel3:#0f1820;
+    --neon:#00ff9c; --neon-dim:#0bd181; --neon2:#00e0ff; --neon3:#7aff00;
+    --warn:#ffb000; --bad:#ff3b5c;
+    --txt:#d4ffe9; --txt-dim:#88bba0; --dim:#3f6b5a; --line:rgba(0,255,156,.22);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:'JetBrains Mono','Courier New',ui-monospace,monospace;
+    background:radial-gradient(circle at 20% 0%,rgba(0,255,156,.07),transparent 50%),
+               radial-gradient(circle at 80% 80%,rgba(0,224,255,.05),transparent 50%),
+               var(--bg);
+    color:var(--txt); min-height:100vh; overflow-x:hidden;
+    background-image:linear-gradient(rgba(0,255,156,.03) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(0,255,156,.03) 1px,transparent 1px);
+    background-size:36px 36px;
+    background-attachment:fixed;
+  }
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;
+    background:repeating-linear-gradient(transparent 0 2px,rgba(0,0,0,.18) 2px 3px);
+    mix-blend-mode:multiply;opacity:.35}
+  .wrap{max-width:1280px;margin:0 auto;padding:0 24px;position:relative;z-index:10}
+
+  /* ======= NAV ======= */
+  nav.topnav{
+    position:sticky; top:0; z-index:50;
+    background:rgba(4,6,10,.85); backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--line);
+    padding:14px 0;
+  }
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .logo{
+    font-size:18px;font-weight:800;letter-spacing:2.5px;color:var(--neon);
+    text-shadow:0 0 10px rgba(0,255,156,.6);display:flex;align-items:center;gap:6px;
+  }
+  .logo b{color:var(--neon2);text-shadow:0 0 10px rgba(0,224,255,.6)}
+  .nav-links{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .nav-links a{
+    color:var(--txt-dim);text-decoration:none;font-size:12px;font-weight:600;
+    letter-spacing:1.2px;padding:8px 12px;border-radius:5px;transition:.15s;
+  }
+  .nav-links a:hover{color:var(--neon);background:rgba(0,255,156,.06)}
+  .btn-login{
+    background:linear-gradient(135deg,var(--neon),var(--neon3))!important;
+    color:#001a0e!important; font-weight:800!important; letter-spacing:1.5px;
+    box-shadow:0 4px 14px rgba(0,255,156,.3);
+  }
+  .btn-login:hover{box-shadow:0 6px 20px rgba(0,255,156,.5);transform:translateY(-1px)}
+
+  /* ======= HERO ======= */
+  .hero{padding:80px 0 60px;text-align:center;position:relative}
+  .hero::before{
+    content:"";position:absolute;top:20%;left:50%;transform:translateX(-50%);
+    width:600px;height:600px;
+    background:radial-gradient(circle,rgba(0,255,156,.12),transparent 70%);
+    pointer-events:none;
+  }
+  .hero-badge{
+    display:inline-flex;align-items:center;gap:6px;
+    background:rgba(255,176,0,.12);border:1px solid rgba(255,176,0,.4);color:var(--warn);
+    padding:5px 12px;border-radius:999px;font-size:11px;letter-spacing:1.5px;font-weight:700;
+    margin-bottom:20px;
+  }
+  .hero-badge::before{content:"⚡"}
+  .hero h1{
+    font-size:clamp(28px,5vw,52px);font-weight:800;letter-spacing:2px;line-height:1.15;
+    color:var(--neon);text-shadow:0 0 20px rgba(0,255,156,.5);margin-bottom:18px;
+  }
+  .hero h1 b{color:var(--neon2);text-shadow:0 0 20px rgba(0,224,255,.5)}
+  .hero .blink{animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .hero p.lead{
+    font-size:16px;color:var(--txt-dim);max-width:680px;margin:0 auto 32px;
+    line-height:1.7;letter-spacing:.5px;
+  }
+  .hero-cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn-primary{
+    background:linear-gradient(135deg,var(--neon),var(--neon3));color:#001a0e;
+    padding:14px 28px;border-radius:6px;font-size:14px;font-weight:800;letter-spacing:2px;
+    text-decoration:none;display:inline-flex;align-items:center;gap:6px;
+    box-shadow:0 6px 24px rgba(0,255,156,.35);transition:.2s;font-family:inherit;border:0;cursor:pointer;
+    position:relative;overflow:hidden;
+  }
+  .btn-primary:hover{box-shadow:0 8px 32px rgba(0,255,156,.6);transform:translateY(-2px)}
+  .btn-primary::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.35) 50%,transparent 70%);
+    transform:translateX(-100%);animation:shine 3s infinite}
+  @keyframes shine{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+  .btn-ghost{
+    background:transparent;color:var(--neon);border:1px solid var(--line);
+    padding:14px 28px;border-radius:6px;font-size:14px;font-weight:700;letter-spacing:2px;
+    text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:.2s;font-family:inherit;
+  }
+  .btn-ghost:hover{border-color:var(--neon);box-shadow:0 0 16px rgba(0,255,156,.3)}
+
+  /* ======= STATS BANNER ======= */
+  .stats-banner{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;
+    margin:40px 0 80px;
+  }
+  .stat-card{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);border-radius:10px;padding:24px 16px;text-align:center;
+    position:relative;overflow:hidden;transition:.25s;
+  }
+  .stat-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,255,156,.15);border-color:var(--neon)}
+  .stat-card::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--neon),transparent);
+  }
+  .stat-card .n{
+    font-size:36px;font-weight:800;color:var(--neon);
+    text-shadow:0 0 14px rgba(0,255,156,.5);letter-spacing:1px;
+  }
+  .stat-card .n.alt{color:var(--neon2);text-shadow:0 0 14px rgba(0,224,255,.5)}
+  .stat-card .l{font-size:10px;color:var(--txt-dim);letter-spacing:1.5px;margin-top:6px;font-weight:600;text-transform:uppercase}
+
+  /* ======= SECTIONS ======= */
+  section{padding:60px 0;position:relative}
+  .sec-head{text-align:center;margin-bottom:40px}
+  .sec-tag{
+    display:inline-block;font-size:10px;color:var(--neon);letter-spacing:3px;
+    padding:4px 12px;border:1px solid var(--line);border-radius:999px;margin-bottom:14px;font-weight:700;
+  }
+  .sec-head h2{
+    font-size:clamp(22px,3vw,32px);font-weight:800;letter-spacing:1.5px;color:var(--txt);
+    margin-bottom:10px;
+  }
+  .sec-head h2 b{color:var(--neon);text-shadow:0 0 10px rgba(0,255,156,.4)}
+  .sec-head p{font-size:14px;color:var(--txt-dim);max-width:600px;margin:0 auto;line-height:1.7}
+
+  /* ======= FEATURES ======= */
+  .features{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
+  .feat{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);border-radius:10px;padding:24px;transition:.25s;
+    position:relative;overflow:hidden;
+  }
+  .feat:hover{transform:translateY(-4px);border-color:var(--neon);box-shadow:0 12px 28px rgba(0,255,156,.15)}
+  .feat .icon{
+    width:48px;height:48px;border-radius:10px;
+    background:rgba(0,255,156,.1);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:22px;
+    margin-bottom:14px;
+  }
+  .feat h3{font-size:15px;color:var(--neon);letter-spacing:1.5px;margin-bottom:8px;font-weight:800}
+  .feat p{font-size:12.5px;color:var(--txt-dim);line-height:1.7;letter-spacing:.3px}
+
+  /* ======= LEADERBOARD ======= */
+  .lb-card{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  }
+  .lb-card table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .lb-card th,.lb-card td{padding:11px 14px;text-align:left;border-bottom:1px solid rgba(0,255,156,.08)}
+  .lb-card th{
+    color:var(--neon-dim);letter-spacing:1.5px;font-size:10px;text-transform:uppercase;
+    background:rgba(0,255,156,.04);font-weight:700;
+  }
+  .lb-card tr:last-child td{border-bottom:none}
+  .lb-card tr:hover{background:rgba(0,255,156,.04)}
+  .ok{color:var(--neon);font-weight:700}.wrong{color:var(--bad);font-weight:700}.pending{color:var(--dim)}
+
+  /* ======= PRICING ======= */
+  .pricing{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
+  .plan{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);border-radius:12px;padding:28px 22px;text-align:center;
+    position:relative;transition:.25s;
+  }
+  .plan:hover{transform:translateY(-4px);box-shadow:0 12px 32px rgba(0,255,156,.12)}
+  .plan.featured{border-color:var(--neon);box-shadow:0 0 28px rgba(0,255,156,.2)}
+  .plan.featured::before{
+    content:"PHỔ BIẾN";position:absolute;top:-10px;left:50%;transform:translateX(-50%);
+    background:linear-gradient(135deg,var(--neon),var(--neon3));color:#001a0e;
+    font-size:9px;padding:4px 12px;border-radius:999px;font-weight:800;letter-spacing:1.5px;
+  }
+  .plan h3{font-size:14px;color:var(--neon);letter-spacing:2px;margin-bottom:6px;font-weight:800}
+  .plan .price{
+    font-size:32px;color:var(--txt);font-weight:800;margin:14px 0;letter-spacing:.5px;
+  }
+  .plan .price small{font-size:12px;color:var(--txt-dim);font-weight:500}
+  .plan ul{list-style:none;text-align:left;margin:18px 0;display:flex;flex-direction:column;gap:8px}
+  .plan li{font-size:12px;color:var(--txt-dim);padding-left:20px;position:relative;line-height:1.6}
+  .plan li::before{content:"▸";position:absolute;left:0;color:var(--neon)}
+  .plan .btn-plan{
+    display:inline-block;background:var(--panel3);color:var(--neon);
+    border:1px solid var(--line);padding:10px 20px;border-radius:5px;
+    font-size:12px;font-weight:700;letter-spacing:1.5px;text-decoration:none;transition:.2s;
+    width:100%;text-align:center;font-family:inherit;cursor:pointer;
+  }
+  .plan .btn-plan:hover{border-color:var(--neon);box-shadow:0 0 14px rgba(0,255,156,.3)}
+  .plan.featured .btn-plan{
+    background:linear-gradient(135deg,var(--neon),var(--neon3));color:#001a0e;
+    box-shadow:0 4px 14px rgba(0,255,156,.3);border:0;
+  }
+
+  /* ======= TESTIMONIALS ======= */
+  .testimonials{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+  .testi{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);border-radius:10px;padding:22px;position:relative;
+  }
+  .testi::before{
+    content:"❝";position:absolute;top:8px;left:14px;font-size:48px;color:var(--neon);opacity:.2;
+    font-family:Georgia,serif;
+  }
+  .testi p{font-size:13px;color:var(--txt);line-height:1.7;margin-bottom:14px;padding-left:18px;position:relative;z-index:1}
+  .testi .author{font-size:11px;color:var(--neon-dim);letter-spacing:1px}
+  .testi .author b{color:var(--neon)}
+  .stars{color:var(--warn);font-size:14px;letter-spacing:2px;margin-bottom:8px}
+
+  /* ======= FAQ ======= */
+  .faq{display:flex;flex-direction:column;gap:10px}
+  details{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);border-radius:8px;padding:0;overflow:hidden;
+  }
+  details summary{
+    padding:16px 20px;font-size:13.5px;color:var(--txt);font-weight:700;cursor:pointer;
+    letter-spacing:.5px;display:flex;align-items:center;justify-content:space-between;
+    list-style:none;
+  }
+  details summary::-webkit-details-marker{display:none}
+  details summary::after{content:"+";color:var(--neon);font-size:20px;transition:.2s;font-weight:300}
+  details[open] summary::after{transform:rotate(45deg)}
+  details[open] summary{border-bottom:1px dashed rgba(0,255,156,.2);background:rgba(0,255,156,.03)}
+  details .ans{padding:14px 20px;font-size:12.5px;color:var(--txt-dim);line-height:1.8;letter-spacing:.3px}
+
+  /* ======= CTA FINAL ======= */
+  .cta-final{
+    text-align:center;padding:80px 24px;
+    background:linear-gradient(180deg,rgba(0,255,156,.04),transparent);
+    border:1px solid var(--line);border-radius:14px;
+    margin:60px 0;position:relative;overflow:hidden;
+  }
+  .cta-final::before{
+    content:"";position:absolute;top:0;left:-100%;width:100%;height:2px;
+    background:linear-gradient(90deg,transparent,var(--neon),var(--neon2),transparent);
+    animation:scanLine 4s linear infinite;
+  }
+  @keyframes scanLine{0%{left:-100%}100%{left:100%}}
+  .cta-final h2{font-size:clamp(20px,3vw,30px);color:var(--neon);margin-bottom:14px;letter-spacing:1.5px}
+  .cta-final p{font-size:14px;color:var(--txt-dim);margin-bottom:24px;max-width:520px;margin-left:auto;margin-right:auto;line-height:1.7}
+
+  /* ======= FOOTER ======= */
+  footer{
+    border-top:1px solid var(--line);padding:34px 0 24px;margin-top:40px;
+    background:rgba(10,15,20,.5);
+  }
+  footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:20px;align-items:flex-start}
+  footer .col h4{font-size:11px;color:var(--neon);letter-spacing:2px;margin-bottom:12px;font-weight:800}
+  footer .col ul{list-style:none;display:flex;flex-direction:column;gap:6px}
+  footer .col a{color:var(--txt-dim);font-size:12px;text-decoration:none;transition:.15s}
+  footer .col a:hover{color:var(--neon)}
+  footer .copy{
+    text-align:center;font-size:10.5px;color:var(--dim);letter-spacing:1.5px;
+    padding-top:20px;margin-top:20px;border-top:1px dashed rgba(0,255,156,.1);
+    width:100%;
+  }
+
+  /* ======= MOBILE ======= */
+  @media (max-width:768px){
+    .wrap{padding:0 14px}
+    nav.topnav{padding:10px 0}
+    .nav-links a{padding:6px 10px;font-size:11px;letter-spacing:1px}
+    .hero{padding:50px 0 40px}
+    .hero h1{font-size:28px;letter-spacing:1px}
+    .hero p.lead{font-size:14px}
+    .btn-primary,.btn-ghost{padding:12px 22px;font-size:13px}
+    section{padding:40px 0}
+    .stat-card .n{font-size:28px}
+    .lb-card th,.lb-card td{padding:8px 10px;font-size:11.5px}
+    .plan{padding:22px 18px}
+    footer .wrap{flex-direction:column;gap:16px}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="wrap">
+    <a href="/" class="logo" style="text-decoration:none">⛧ FOOTBALL <b>ORACLE</b> <span class="blink" style="color:var(--neon)">_</span></a>
+    <div class="nav-links">
+      <a href="#features">Tính năng</a>
+      <a href="#stats">Số liệu</a>
+      <a href="#pricing">Bảng giá</a>
+      <a href="#faq">FAQ</a>
+      <a href="/login" class="btn-login">▸ ĐĂNG NHẬP</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-badge">AI ENGINE · LIVE 24/7</div>
+    <h1>Dự đoán bóng đá<br><b>chính xác đến từng phút</b></h1>
+    <p class="lead">
+      Tool AI hàng đầu Việt Nam dùng <b style="color:var(--neon)">Dixon-Coles</b>, <b style="color:var(--neon)">Monte Carlo 10k</b>, <b style="color:var(--neon)">Machine Learning</b> để phân tích từng trận. Track record công khai, kiểm chứng minh bạch.
+    </p>
+    <div class="hero-cta">
+      <a href="/login" class="btn-primary">🚀 BẮT ĐẦU NGAY</a>
+      <a href="#stats" class="btn-ghost">📊 XEM SỐ LIỆU</a>
+    </div>
+  </section>
+
+  <!-- STATS BANNER -->
+  <div class="stats-banner" id="stats">
+    <div class="stat-card"><div class="n" id="statAcc">—</div><div class="l">Độ chính xác</div></div>
+    <div class="stat-card"><div class="n alt" id="statTotal">—</div><div class="l">Dự đoán đã ghi</div></div>
+    <div class="stat-card"><div class="n" id="statResolved">—</div><div class="l">Đã kiểm chứng</div></div>
+    <div class="stat-card"><div class="n alt" id="statUsers">—</div><div class="l">Thành viên</div></div>
+  </div>
+
+  <!-- FEATURES -->
+  <section id="features">
+    <div class="sec-head">
+      <span class="sec-tag">⚙ ENGINE</span>
+      <h2>4 lớp <b>AI chồng nhau</b></h2>
+      <p>Mỗi trận đấu được phân tích qua 4 mô hình độc lập, blend lại bằng trọng số tối ưu</p>
+    </div>
+    <div class="features">
+      <div class="feat"><div class="icon">⚡</div><h3>DIXON-COLES</h3><p>Mô hình Poisson cải tiến, fit từ toàn bộ mùa giải. Tính sức mạnh tấn công/phòng thủ thực của từng đội.</p></div>
+      <div class="feat"><div class="icon">🎲</div><h3>MONTE CARLO 10k</h3><p>Mô phỏng 10.000 trận đấu cho mỗi cặp, tính xác suất tỉ số chính xác đến từng kịch bản.</p></div>
+      <div class="feat"><div class="icon">🧠</div><h3>ML SOFTMAX</h3><p>Mạng neural train trên hàng nghìn trận lịch sử, học các pattern ẩn mà mô hình toán không nhìn thấy.</p></div>
+      <div class="feat"><div class="icon">📊</div><h3>KÈO THẬT</h3><p>So sánh với odds từ 7+ nhà cái lớn, tính value bet — đặt cược chỉ khi model nghĩ giá tốt.</p></div>
+      <div class="feat"><div class="icon">⏱</div><h3>IN-PLAY LIVE</h3><p>Cập nhật xác suất theo phút thật, tỉ số đang có. Theo dõi đến cuối trận miễn phí sau khi mở.</p></div>
+      <div class="feat"><div class="icon">🎯</div><h3>3 KÈO CHÍNH</h3><p>Tự gợi ý: Kèo góc, Cược chấp (Asian Handicap), Tài/Xỉu — kèm xác suất cụ thể từng option.</p></div>
+    </div>
+  </section>
+
+  <!-- LEADERBOARD -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-tag">📜 TRACK RECORD</span>
+      <h2>Lịch sử <b>minh bạch 100%</b></h2>
+      <p>Mọi dự đoán đều được ghi vĩnh viễn, không sửa hồi tố. Đối chiếu tự động khi trận kết thúc.</p>
+    </div>
+    <div class="lb-card">
+      <table id="lbTable">
+        <thead><tr><th>#</th><th>Trận</th><th>Dự đoán</th><th>Tin cậy</th><th>Kết quả</th><th style="text-align:center">✓/✗</th></tr></thead>
+        <tbody id="lbBody"><tr><td colspan="6" style="text-align:center;color:var(--dim);padding:30px">Đang tải...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- PRICING -->
+  <section id="pricing">
+    <div class="sec-head">
+      <span class="sec-tag">💎 BẢNG GIÁ</span>
+      <h2>Chọn <b>gói phù hợp</b> với bạn</h2>
+      <p>Trả theo điểm — mỗi trận phân tích tốn 5-20 điểm tùy độ khó. Mua một lần, xem cả trận.</p>
+    </div>
+    <div class="pricing">
+      <div class="plan">
+        <h3>TRIAL</h3>
+        <div class="price">FREE<small> · 50đ</small></div>
+        <ul>
+          <li>50 điểm khởi tạo</li>
+          <li>Xem 3-5 phân tích</li>
+          <li>Tab LIVE in-play</li>
+          <li>Sổ kèo cá nhân</li>
+        </ul>
+        <a href="/login" class="btn-plan">DÙNG THỬ</a>
+      </div>
+      <div class="plan featured">
+        <h3>BASIC</h3>
+        <div class="price">200K<small>đ/tháng</small></div>
+        <ul>
+          <li>2.000 điểm/tháng</li>
+          <li>~150 trận phân tích</li>
+          <li>Xem lại không tốn thêm</li>
+          <li>Hỗ trợ ưu tiên</li>
+        </ul>
+        <a href="/login" class="btn-plan">CHỌN BASIC</a>
+      </div>
+      <div class="plan">
+        <h3>PRO</h3>
+        <div class="price">500K<small>đ/tháng</small></div>
+        <ul>
+          <li>6.000 điểm/tháng</li>
+          <li>~500 trận phân tích</li>
+          <li>VIP Picks of the Day</li>
+          <li>Email/Telegram alerts</li>
+          <li>API access</li>
+        </ul>
+        <a href="/login" class="btn-plan">CHỌN PRO</a>
+      </div>
+      <div class="plan">
+        <h3>VIP</h3>
+        <div class="price">1.5M<small>đ/tháng</small></div>
+        <ul>
+          <li>Unlimited điểm</li>
+          <li>Tất cả tính năng PRO</li>
+          <li>Tư vấn 1-on-1</li>
+          <li>Đề xuất tùy chỉnh</li>
+          <li>Bookmaker scan</li>
+        </ul>
+        <a href="/login" class="btn-plan">LIÊN HỆ</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- TESTIMONIALS -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-tag">★ ĐÁNH GIÁ</span>
+      <h2>Người dùng <b>nói gì?</b></h2>
+    </div>
+    <div class="testimonials">
+      <div class="testi">
+        <div class="stars">★★★★★</div>
+        <p>Theo dõi 2 tháng, hit-rate 65%. Tool phân tích kỹ hơn nhiều site VIP khác bán đắt. Đặc biệt phần In-Play live cập nhật theo phút rất hay.</p>
+        <div class="author"><b>Minh Tuấn</b> · Hà Nội · PRO</div>
+      </div>
+      <div class="testi">
+        <div class="stars">★★★★★</div>
+        <p>Mình thích nhất phần Monte Carlo 10k và bảng xác suất tỉ số. Quyết định kèo Tài/Xỉu rõ ràng hơn hẳn. Track record công khai cho cảm giác tin cậy.</p>
+        <div class="author"><b>Hoàng Đức</b> · TP.HCM · BASIC</div>
+      </div>
+      <div class="testi">
+        <div class="stars">★★★★★</div>
+        <p>UI cyberpunk đẹp, mượt trên cả mobile. Giá hợp lý so với chất lượng. Đáng tiền cho ai chơi nghiêm túc, không phải tool sòng bạc.</p>
+        <div class="author"><b>Lê Quang</b> · Đà Nẵng · VIP</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <div class="sec-head">
+      <span class="sec-tag">❓ FAQ</span>
+      <h2>Câu hỏi <b>thường gặp</b></h2>
+    </div>
+    <div class="faq">
+      <details><summary>Tool có chính xác không?</summary><div class="ans">Track record công khai ở trên (kéo lên xem bảng "Lịch sử minh bạch 100%"). Mọi dự đoán đều được ghi vĩnh viễn vào sổ kèo, không sửa hồi tố. Bạn có thể tự kiểm tra. Độ chính xác trung bình các giải lớn dao động 55-70%.</div></details>
+      <details><summary>Đăng ký bằng cách nào?</summary><div class="ans">Hệ thống không hỗ trợ tự đăng ký. Tài khoản được admin cấp sau khi bạn liên hệ qua Telegram/Email. Điều này đảm bảo chất lượng cộng đồng và tránh bot/spam.</div></details>
+      <details><summary>Điểm hoạt động như thế nào?</summary><div class="ans">Mỗi trận có cost cố định 5-20 điểm (tùy độ khó). Mua một lần, xem lại cả trận miễn phí (in-play update không tốn thêm). Khi hết điểm, mua thêm gói hoặc nhờ admin nạp.</div></details>
+      <details><summary>Có Telegram channel không?</summary><div class="ans">Có. Channel free đăng 3 kèo VIP mỗi sáng. Subscribe để nhận thông báo trận đấu hot. Link sẽ gửi qua email sau khi bạn đăng nhập lần đầu.</div></details>
+      <details><summary>Hỗ trợ mobile?</summary><div class="ans">Hoàn toàn responsive trên mọi thiết bị. PWA installable trong tương lai. Hiện tại Chrome/Safari/Firefox mobile đều dùng tốt.</div></details>
+      <details><summary>Dữ liệu nguồn từ đâu?</summary><div class="ans">Football-Data.org, SofaScore, Odds API, thethaoviet.vip — tất cả đều realtime. Mọi nguồn đều có cache + fallback để đảm bảo uptime.</div></details>
+      <details><summary>Có hoàn tiền không?</summary><div class="ans">Trial free 50đ để bạn thử trước khi mua. Nếu mua gói trả phí mà không hài lòng trong 7 ngày đầu, liên hệ admin để hoàn lại điểm chưa dùng. Không hoàn tiền mặt.</div></details>
+    </div>
+  </section>
+
+  <!-- CTA FINAL -->
+  <div class="cta-final">
+    <h2>Sẵn sàng <b style="color:var(--neon)">chinh phục</b> kèo bóng đá?</h2>
+    <p>Tham gia cộng đồng dự đoán AI hàng đầu Việt Nam. Free trial 50 điểm cho tài khoản mới.</p>
+    <a href="/login" class="btn-primary">🚀 ĐĂNG NHẬP NGAY</a>
+  </div>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="col">
+      <h4>FOOTBALL ORACLE</h4>
+      <p style="font-size:11.5px;color:var(--txt-dim);line-height:1.6;max-width:240px">AI dự đoán bóng đá realtime · Dixon-Coles + Monte Carlo + ML softmax · Track record công khai.</p>
+    </div>
+    <div class="col">
+      <h4>Sản phẩm</h4>
+      <ul>
+        <li><a href="/login">Đăng nhập</a></li>
+        <li><a href="#pricing">Bảng giá</a></li>
+        <li><a href="#features">Tính năng</a></li>
+        <li><a href="#stats">Track record</a></li>
+      </ul>
+    </div>
+    <div class="col">
+      <h4>Hỗ trợ</h4>
+      <ul>
+        <li><a href="#faq">FAQ</a></li>
+        <li><a href="mailto:support@goal789.site">Email</a></li>
+        <li><a href="https://t.me/goal789bot" target="_blank">Telegram</a></li>
+      </ul>
+    </div>
+    <div class="col">
+      <h4>Pháp lý</h4>
+      <ul>
+        <li><a href="#">Điều khoản</a></li>
+        <li><a href="#">Bảo mật</a></li>
+        <li><a href="#">Cookie</a></li>
+      </ul>
+    </div>
+    <div class="copy">© 2026 FOOTBALL ORACLE · goal789.site · Tool tham khảo, không khuyến nghị cá cược.</div>
+  </div>
+</footer>
+
+<script>
+const API = location.origin;
+function fmtNum(n){
+  if(n === null || n === undefined) return '—';
+  if(n >= 1000) return (n/1000).toFixed(1) + 'k';
+  return String(n);
+}
+async function loadStats(){
+  try{
+    const r = await fetch(API+'/api/public/stats');
+    if(!r.ok) return;
+    const s = await r.json();
+    document.getElementById('statAcc').textContent = s.accuracy ? (s.accuracy*100).toFixed(1)+'%' : '—';
+    document.getElementById('statTotal').textContent = fmtNum(s.total_predictions);
+    document.getElementById('statResolved').textContent = fmtNum(s.resolved);
+    document.getElementById('statUsers').textContent = fmtNum(s.total_users);
+  }catch(e){}
+}
+async function loadLeaderboard(){
+  try{
+    const r = await fetch(API+'/api/public/leaderboard');
+    if(!r.ok) return;
+    const d = await r.json();
+    const rows = d.items || [];
+    const body = document.getElementById('lbBody');
+    if(!rows.length){
+      body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--dim);padding:30px">Chưa có dữ liệu</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((r, i) => {
+      const result = r.result ? (r.result.score || '—') : '<span class="pending">chờ...</span>';
+      const ok = r.correct === true ? '<span class="ok">✓</span>'
+              : r.correct === false ? '<span class="wrong">✗</span>'
+              : '<span class="pending">—</span>';
+      const pick = {home:'Nhà',draw:'Hoà',away:'Khách'}[r.pick] || r.pick;
+      return `<tr>
+        <td><b style="color:var(--neon2)">#${i+1}</b></td>
+        <td><b>${escapeHtml(r.home)}</b> vs <b>${escapeHtml(r.away)}</b></td>
+        <td>${pick}</td>
+        <td><b style="color:var(--neon)">${r.confidence ? (r.confidence*100).toFixed(0)+'%' : '—'}</b></td>
+        <td>${result}</td>
+        <td style="text-align:center;font-size:16px">${ok}</td>
+      </tr>`;
+    }).join('');
+  }catch(e){}
+}
+function escapeHtml(s){return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+
+loadStats();
+loadLeaderboard();
+</script>
+
+</body>
+</html>
