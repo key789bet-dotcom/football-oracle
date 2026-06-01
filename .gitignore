@@ -6,3 +6,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Database users (chứa password hash + session)
+users.db
+backend/users.db
+*.db
+*.db-journal

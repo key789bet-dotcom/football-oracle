@@ -400,16 +400,23 @@
 </head>
 <body>
 <div class="wrap">
-<header>
-  <div class="title">
-    ⛧ FOOTBALL <b>ORACLE</b> <span class="blink">_</span>
-    <span class="title-badge">LIVE AI</span>
+<header style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+  <div style="flex:1;min-width:0">
+    <div class="title">
+      ⛧ FOOTBALL <b>ORACLE</b> <span class="blink">_</span>
+      <span class="title-badge">LIVE AI</span>
+    </div>
+    <div class="sub">
+      <span class="sub-chip">⚡ DIXON-COLES</span>
+      <span class="sub-chip">🎲 MONTE-CARLO 10k</span>
+      <span class="sub-chip">🧠 ML SOFTMAX</span>
+      <span class="sub-chip">📊 fit cả mùa</span>
+    </div>
   </div>
-  <div class="sub">
-    <span class="sub-chip">⚡ DIXON-COLES</span>
-    <span class="sub-chip">🎲 MONTE-CARLO 10k</span>
-    <span class="sub-chip">🧠 ML SOFTMAX</span>
-    <span class="sub-chip">📊 fit cả mùa</span>
+  <div id="userBar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--txt-dim);letter-spacing:1px">
+    <span id="meTag" style="color:var(--neon);font-weight:700">...</span>
+    <a id="adminLink" href="/admin" style="display:none;background:rgba(255,176,0,.12);border:1px solid rgba(255,176,0,.4);color:var(--warn);padding:4px 10px;border-radius:5px;text-decoration:none;font-weight:700;letter-spacing:1px;font-size:11px">🔐 ADMIN</a>
+    <a href="/logout" style="background:rgba(255,59,92,.1);border:1px solid rgba(255,59,92,.3);color:var(--bad);padding:4px 10px;border-radius:5px;text-decoration:none;font-weight:700;letter-spacing:1px;font-size:11px">⏻ LOGOUT</a>
   </div>
 </header>
 
@@ -847,6 +854,21 @@ async function loadTrack(){
       <div class="src">// sổ này lưu vĩnh viễn (backend/track_log.json), không sửa hồi tố — đối chiếu tự động khi trận kết thúc. Đây mới là bằng chứng độ tin cậy thật theo thời gian.</div>`;
   }catch(e){v.innerHTML='<div class="empty err">! '+e+'</div>';}
 }
+
+// Load current user info to show username + admin link
+(async function loadMe(){
+  try{
+    const r = await fetch(API+"/api/me");
+    if(!r.ok) return;
+    const u = await r.json();
+    const tag = document.getElementById("meTag");
+    if(tag) tag.textContent = "👤 " + u.username + " · " + u.role.toUpperCase();
+    if(u.role === "admin"){
+      const a = document.getElementById("adminLink");
+      if(a) a.style.display = "inline-block";
+    }
+  }catch(e){}
+})();
 
 setTab("comp");
 </script>

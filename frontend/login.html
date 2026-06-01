@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Đăng nhập · FOOTBALL ORACLE</title>
+<style>
+  :root{
+    --bg:#04060a; --panel:#0a0f14; --panel2:#0d141b;
+    --neon:#00ff9c; --neon2:#00e0ff; --neon3:#7aff00;
+    --warn:#ffb000; --bad:#ff3b5c;
+    --txt:#d4ffe9; --txt-dim:#88bba0; --dim:#3f6b5a;
+    --line:rgba(0,255,156,.25);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'JetBrains Mono','Courier New',ui-monospace,monospace;
+    background:radial-gradient(circle at 20% 0%,rgba(0,255,156,.08),transparent 50%),
+               radial-gradient(circle at 80% 100%,rgba(0,224,255,.06),transparent 50%),
+               var(--bg);
+    color:var(--txt); min-height:100vh; padding:20px;
+    display:flex; align-items:center; justify-content:center;
+    background-image:linear-gradient(rgba(0,255,156,.035) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(0,255,156,.035) 1px,transparent 1px);
+    background-size:36px 36px;
+    background-attachment:fixed;
+    overflow:hidden;
+  }
+  body::after{
+    content:""; position:fixed; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(transparent 0 2px,rgba(0,0,0,.18) 2px 3px);
+    mix-blend-mode:multiply; opacity:.45;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.6) 100%);
+  }
+  /* Floating scan line */
+  .scan{
+    position:fixed; left:0; right:0; height:2px;
+    background:linear-gradient(90deg,transparent,var(--neon),var(--neon2),transparent);
+    animation:scanV 6s linear infinite; opacity:.6; pointer-events:none; z-index:2;
+  }
+  @keyframes scanV{0%{top:-2px}100%{top:100vh}}
+
+  .login-wrap{
+    position:relative; z-index:10;
+    width:100%; max-width:380px;
+    animation:fadeUp .5s ease;
+  }
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+  .login-card{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:34px 30px 28px;
+    box-shadow:0 0 40px rgba(0,255,156,.15), inset 0 1px 0 rgba(0,255,156,.1);
+    position:relative; overflow:hidden;
+  }
+  .login-card::before{
+    content:""; position:absolute; top:0; left:-100%; width:100%; height:2px;
+    background:linear-gradient(90deg,transparent,var(--neon),var(--neon2),transparent);
+    animation:scanLine 3.5s linear infinite;
+  }
+  @keyframes scanLine{0%{left:-100%}100%{left:100%}}
+
+  .brand{
+    text-align:center; margin-bottom:6px;
+    font-size:22px; font-weight:800; letter-spacing:3px; color:var(--neon);
+    text-shadow:0 0 14px rgba(0,255,156,.7),0 0 28px rgba(0,255,156,.3);
+  }
+  .brand b{color:var(--neon2);text-shadow:0 0 14px rgba(0,224,255,.7)}
+  .brand .blink{animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  .badge{
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:10px; letter-spacing:2px; padding:3px 10px; border-radius:999px;
+    background:rgba(255,59,92,.12); border:1px solid rgba(255,59,92,.4); color:var(--bad);
+    font-weight:700; margin:6px 0 18px;
+  }
+  .badge::before{content:"●";animation:blink 1.2s infinite}
+  .tagline{
+    text-align:center; font-size:11px; color:var(--txt-dim);
+    letter-spacing:1.5px; margin-bottom:24px;
+  }
+
+  .badge-wrap{text-align:center}
+
+  form{display:flex;flex-direction:column;gap:12px}
+
+  .field{position:relative}
+  .field label{
+    position:absolute; left:13px; top:-7px; font-size:9.5px; letter-spacing:1.5px;
+    background:var(--panel); padding:0 6px; color:var(--neon-dim,#0bd181); font-weight:700;
+    text-transform:uppercase;
+  }
+  input{
+    width:100%; box-sizing:border-box;
+    font-family:inherit; background:var(--panel2); color:var(--neon);
+    border:1px solid rgba(0,255,156,.3); padding:13px 14px;
+    border-radius:7px; font-size:14px; letter-spacing:.5px;
+    transition:.2s; outline:none;
+  }
+  input:focus{
+    border-color:var(--neon);
+    box-shadow:0 0 0 3px rgba(0,255,156,.12), 0 0 18px rgba(0,255,156,.25);
+    background:var(--panel);
+  }
+  input::placeholder{color:var(--dim)}
+
+  button{
+    width:100%; font-family:inherit;
+    background:linear-gradient(135deg,var(--neon),var(--neon3));
+    color:#001a0e; border:0; padding:13px;
+    border-radius:7px; font-size:14px; font-weight:800; letter-spacing:2px;
+    cursor:pointer; margin-top:6px; transition:.2s;
+    position:relative; overflow:hidden;
+    box-shadow:0 4px 18px rgba(0,255,156,.3);
+  }
+  button:hover{
+    box-shadow:0 6px 24px rgba(0,255,156,.55);
+    transform:translateY(-1px);
+  }
+  button:active{transform:translateY(0)}
+  button::after{
+    content:""; position:absolute; inset:0;
+    background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.35) 50%,transparent 70%);
+    transform:translateX(-100%); animation:shine 2.5s infinite;
+  }
+  @keyframes shine{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+
+  .err{
+    color:var(--bad); font-size:12px; margin-bottom:6px;
+    padding:9px 12px; background:rgba(255,59,92,.08); border:1px solid rgba(255,59,92,.3);
+    border-radius:6px; letter-spacing:.5px;
+    animation:shake .4s;
+  }
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+  .err::before{content:"✗ "; font-weight:bold}
+
+  .foot{
+    margin-top:22px; padding-top:16px; border-top:1px dashed rgba(0,255,156,.2);
+    font-size:10.5px; color:var(--txt-dim); text-align:center; letter-spacing:1px;
+    line-height:1.7;
+  }
+  .foot .neon{color:var(--neon)}
+
+  /* Mobile */
+  @media (max-width:420px){
+    .login-card{padding:26px 22px 22px}
+    .brand{font-size:19px;letter-spacing:2px}
+  }
+</style>
+</head>
+<body>
+<div class="scan"></div>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="brand">⛧ FOOTBALL <b>ORACLE</b> <span class="blink">_</span></div>
+    <div class="badge-wrap"><span class="badge">LIVE AI</span></div>
+    <div class="tagline">KHU VỰC RIÊNG TƯ · DỰ ĐOÁN BÓNG ĐÁ AI</div>
+
+    <!--ERR-->
+
+    <form method="post" action="/auth" autocomplete="on">
+      <div class="field">
+        <label>Tên đăng nhập</label>
+        <input type="text" name="username" placeholder="username" autofocus required autocomplete="username"/>
+      </div>
+      <div class="field">
+        <label>Mật khẩu</label>
+        <input type="password" name="password" placeholder="••••••••" required autocomplete="current-password"/>
+      </div>
+      <button type="submit">▸ ĐĂNG NHẬP</button>
+    </form>
+
+    <div class="foot">
+      Chưa có tài khoản? Liên hệ <span class="neon">ADMIN</span> để được cấp.<br>
+      Không hỗ trợ tự đăng ký.
+    </div>
+  </div>
+</div>
+</body>
+</html>

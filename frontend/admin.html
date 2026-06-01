@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Admin · FOOTBALL ORACLE</title>
+<style>
+  :root{
+    --bg:#04060a; --panel:#0a0f14; --panel2:#0d141b; --panel3:#0f1820;
+    --neon:#00ff9c; --neon-dim:#0bd181; --neon2:#00e0ff; --neon3:#7aff00;
+    --warn:#ffb000; --bad:#ff3b5c;
+    --txt:#d4ffe9; --txt-dim:#88bba0; --dim:#3f6b5a;
+    --line:rgba(0,255,156,.22);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'JetBrains Mono','Courier New',ui-monospace,monospace;
+    background:radial-gradient(circle at 20% 0%,rgba(0,255,156,.05),transparent 50%),
+               radial-gradient(circle at 80% 100%,rgba(0,224,255,.04),transparent 50%),
+               var(--bg);
+    color:var(--txt); padding:14px; min-height:100vh; overflow-x:hidden;
+    background-image:linear-gradient(rgba(0,255,156,.035) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(0,255,156,.035) 1px,transparent 1px);
+    background-size:36px 36px;
+    background-attachment:fixed;
+  }
+  body::after{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:9;
+    background:repeating-linear-gradient(transparent 0 2px,rgba(0,0,0,.18) 2px 3px);
+    mix-blend-mode:multiply; opacity:.45;
+  }
+  .wrap{max-width:1280px;margin:0 auto;position:relative;z-index:10}
+
+  /* ======= HEADER ======= */
+  header{
+    border:1px solid var(--line);
+    background:linear-gradient(135deg,rgba(0,255,156,.08) 0%,rgba(0,224,255,.04) 50%,transparent 100%);
+    padding:18px 22px; border-radius:8px; margin-bottom:16px;
+    position:relative; overflow:hidden;
+    display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  }
+  header::before{
+    content:""; position:absolute; top:0; left:-100%; width:100%; height:2px;
+    background:linear-gradient(90deg,transparent,var(--neon),var(--neon2),transparent);
+    animation:scanLine 4s linear infinite;
+  }
+  @keyframes scanLine{0%{left:-100%}100%{left:100%}}
+  .title{
+    font-size:22px; font-weight:800; letter-spacing:3px; color:var(--neon);
+    text-shadow:0 0 12px rgba(0,255,156,.7);
+    display:flex; align-items:center; gap:10px;
+  }
+  .title b{color:var(--neon2);text-shadow:0 0 12px rgba(0,224,255,.7)}
+  .title-badge{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:10px; letter-spacing:2px; padding:3px 9px; border-radius:999px;
+    background:rgba(255,176,0,.12); border:1px solid rgba(255,176,0,.4); color:var(--warn);
+    font-weight:700; text-shadow:none;
+  }
+  .userbar{
+    display:flex; align-items:center; gap:10px;
+    font-size:11px; color:var(--txt-dim); letter-spacing:1px;
+  }
+  .userbar .me{color:var(--neon);font-weight:700}
+
+  /* ======= NAV ======= */
+  .nav{
+    display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;
+    padding:10px; background:rgba(10,15,20,.85); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-radius:8px;
+  }
+  .nav a, .nav button{
+    font-family:inherit; background:var(--panel2); color:var(--neon);
+    border:1px solid rgba(0,255,156,.3); padding:9px 14px;
+    border-radius:5px; cursor:pointer; font-size:12.5px;
+    letter-spacing:1.2px; font-weight:600; text-decoration:none;
+    transition:.15s; display:inline-flex; align-items:center; gap:5px;
+  }
+  .nav a:hover, .nav button:hover{
+    box-shadow:0 0 14px rgba(0,255,156,.35); border-color:var(--neon);
+    transform:translateY(-1px);
+  }
+  .nav .logout{
+    background:rgba(255,59,92,.1); border-color:rgba(255,59,92,.3); color:var(--bad);
+    margin-left:auto;
+  }
+  .nav .logout:hover{box-shadow:0 0 14px rgba(255,59,92,.35);border-color:var(--bad)}
+
+  /* ======= STATS ======= */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:16px}
+  .stat{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid rgba(0,255,156,.25); border-radius:8px;
+    padding:16px 14px; text-align:center; position:relative; overflow:hidden;
+    transition:.25s;
+  }
+  .stat:hover{transform:translateY(-2px);box-shadow:0 4px 20px rgba(0,255,156,.12);border-color:var(--neon)}
+  .stat::before{
+    content:""; position:absolute; top:0; left:0; right:0; height:2px;
+    background:linear-gradient(90deg,transparent,var(--neon),transparent);
+    opacity:0; transition:.25s;
+  }
+  .stat:hover::before{opacity:1}
+  .stat .n{
+    font-size:30px; font-weight:800; color:var(--neon);
+    text-shadow:0 0 12px rgba(0,255,156,.5); letter-spacing:1px;
+  }
+  .stat .l{font-size:10px;color:var(--txt-dim);letter-spacing:1.5px;margin-top:4px;font-weight:600;text-transform:uppercase}
+
+  /* ======= CARD ======= */
+  .card{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line); border-radius:8px;
+    padding:18px 20px; margin-bottom:14px;
+  }
+  .card h2{
+    font-size:13px; color:var(--warn); letter-spacing:2.5px; text-transform:uppercase;
+    margin-bottom:12px; font-weight:800;
+  }
+  .card h2::before{content:"▌ "; color:var(--neon)}
+
+  /* ======= FORM ======= */
+  .form-grid{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+    gap:10px; align-items:end;
+  }
+  .form-grid .field{position:relative}
+  .form-grid label{
+    display:block; font-size:10px; color:var(--neon-dim); letter-spacing:1.5px;
+    margin-bottom:4px; font-weight:700; text-transform:uppercase;
+  }
+  input, select{
+    width:100%; box-sizing:border-box; font-family:inherit;
+    background:var(--panel2); color:var(--neon);
+    border:1px solid rgba(0,255,156,.3); padding:10px 12px;
+    border-radius:5px; font-size:13px; outline:none; transition:.15s;
+  }
+  input:focus, select:focus{
+    border-color:var(--neon);
+    box-shadow:0 0 0 3px rgba(0,255,156,.12);
+  }
+  input::placeholder{color:var(--dim)}
+  select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--neon) 50%),linear-gradient(135deg,var(--neon) 50%,transparent 50%);
+    background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:30px}
+
+  .btn{
+    font-family:inherit;
+    background:linear-gradient(135deg,var(--neon),var(--neon3));
+    color:#001a0e; border:0; padding:10px 18px;
+    border-radius:5px; font-size:12.5px; font-weight:800; letter-spacing:1.5px;
+    cursor:pointer; transition:.15s; text-transform:uppercase;
+    box-shadow:0 2px 10px rgba(0,255,156,.25);
+  }
+  .btn:hover{box-shadow:0 4px 18px rgba(0,255,156,.5);transform:translateY(-1px)}
+  .btn-sm{padding:6px 12px;font-size:11px}
+  .btn-danger{background:linear-gradient(135deg,var(--bad),#ff6b85);color:#fff;box-shadow:0 2px 10px rgba(255,59,92,.3)}
+  .btn-danger:hover{box-shadow:0 4px 18px rgba(255,59,92,.5)}
+  .btn-warn{background:linear-gradient(135deg,var(--warn),#ffd060);color:#1a1100;box-shadow:0 2px 10px rgba(255,176,0,.3)}
+
+  /* ======= TABLE ======= */
+  .tbl-wrap{overflow-x:auto;border-radius:6px}
+  table{
+    width:100%; border-collapse:collapse; font-size:12px;
+    background:rgba(10,15,20,.4);
+  }
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid rgba(0,255,156,.08)}
+  th{
+    color:var(--neon-dim); letter-spacing:1.5px; font-size:10px;
+    text-transform:uppercase; font-weight:700;
+    background:rgba(0,255,156,.04);
+  }
+  tbody tr{transition:.15s}
+  tbody tr:hover{background:rgba(0,255,156,.06)}
+  tbody tr:last-child td{border-bottom:none}
+
+  .role-badge{
+    display:inline-block; font-size:10px; padding:2px 8px;
+    border-radius:999px; letter-spacing:1px; font-weight:800; text-transform:uppercase;
+  }
+  .role-admin{background:linear-gradient(135deg,var(--warn),#ffd060);color:#1a1100}
+  .role-user{background:rgba(0,255,156,.15);color:var(--neon);border:1px solid rgba(0,255,156,.3)}
+
+  .actions{display:flex;gap:6px;flex-wrap:wrap}
+
+  .alert{
+    padding:10px 14px; border-radius:6px; font-size:12px; margin-bottom:12px;
+    border:1px solid; letter-spacing:.5px;
+  }
+  .alert-ok{background:rgba(0,255,156,.08);border-color:rgba(0,255,156,.3);color:var(--neon)}
+  .alert-err{background:rgba(255,59,92,.08);border-color:rgba(255,59,92,.3);color:var(--bad)}
+
+  .empty{color:var(--txt-dim);text-align:center;padding:30px;font-size:13px;letter-spacing:1px}
+
+  /* Modal */
+  .modal-bg{
+    position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);
+    display:none;align-items:center;justify-content:center;z-index:100;padding:20px;
+  }
+  .modal-bg.show{display:flex;animation:fadeIn .2s}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  .modal{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:24px; max-width:400px; width:100%;
+    box-shadow:0 0 50px rgba(0,255,156,.25);
+  }
+  .modal h3{font-size:14px;color:var(--neon);letter-spacing:2px;margin-bottom:14px;text-transform:uppercase}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+  /* Mobile */
+  @media (max-width:640px){
+    header{padding:14px 16px}
+    .title{font-size:18px}
+    .nav{padding:8px;gap:6px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+    .nav::-webkit-scrollbar{display:none}
+    .nav a, .nav button{white-space:nowrap;padding:8px 11px;font-size:11.5px}
+    th,td{padding:8px 6px;font-size:11px}
+    .stat .n{font-size:24px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="title">
+        ⛧ ADMIN <b>PANEL</b>
+        <span class="title-badge">🔐 PRIVILEGED</span>
+      </div>
+    </div>
+    <div class="userbar">
+      <span>// đăng nhập:</span>
+      <span class="me" id="me">...</span>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="/">◉ TRANG CHÍNH</a>
+    <button onclick="loadAll()">⟳ TẢI LẠI</button>
+    <a href="/logout" class="logout">⏻ ĐĂNG XUẤT</a>
+  </nav>
+
+  <div id="stats" class="stats"></div>
+
+  <div id="alertbox"></div>
+
+  <!-- Create user -->
+  <div class="card">
+    <h2>Tạo user mới</h2>
+    <form id="createForm" class="form-grid">
+      <div class="field">
+        <label>Username</label>
+        <input type="text" name="username" placeholder="vd: user01" required minlength="3"/>
+      </div>
+      <div class="field">
+        <label>Mật khẩu</label>
+        <input type="text" name="password" placeholder="ít nhất 4 ký tự" required minlength="4"/>
+      </div>
+      <div class="field">
+        <label>Vai trò</label>
+        <select name="role">
+          <option value="user">USER (chỉ xem)</option>
+          <option value="admin">ADMIN (quản trị)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Ghi chú (optional)</label>
+        <input type="text" name="note" placeholder="vd: Khách VIP, dùng cho team A..."/>
+      </div>
+      <div class="field" style="grid-column:1/-1;text-align:right">
+        <button type="submit" class="btn">▸ TẠO TÀI KHOẢN</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- User list -->
+  <div class="card">
+    <h2>Danh sách user (<span id="userCount">0</span>)</h2>
+    <div class="tbl-wrap">
+      <table id="userTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Username</th>
+            <th>Vai trò</th>
+            <th>Tạo lúc</th>
+            <th>Login gần nhất</th>
+            <th>Ghi chú</th>
+            <th style="text-align:right">Thao tác</th>
+          </tr>
+        </thead>
+        <tbody id="userTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Reset password modal -->
+<div class="modal-bg" id="pwModal">
+  <div class="modal">
+    <h3>🔑 Đổi mật khẩu</h3>
+    <p style="font-size:12px;color:var(--txt-dim);margin-bottom:12px">
+      User: <span class="me" style="color:var(--neon);font-weight:700" id="pwUserName"></span>
+    </p>
+    <input type="text" id="pwInput" placeholder="Mật khẩu mới (≥4 ký tự)" minlength="4"/>
+    <div class="modal-actions">
+      <button class="btn btn-sm" style="background:var(--panel2);color:var(--txt-dim);border:1px solid var(--line);box-shadow:none" onclick="closePwModal()">HỦY</button>
+      <button class="btn btn-sm" onclick="submitPw()">▸ ĐỔI MK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = location.origin;
+let pwUserId = null;
+
+function fmtTime(ts){
+  if(!ts) return '<span style="color:var(--dim)">—</span>';
+  const d = new Date(ts*1000);
+  return d.toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+function alertBox(msg, ok){
+  const box = document.getElementById('alertbox');
+  box.innerHTML = `<div class="alert ${ok?'alert-ok':'alert-err'}">${ok?'✓ ':'✗ '}${escapeHtml(msg)}</div>`;
+  setTimeout(()=>{box.innerHTML='';}, 4000);
+}
+
+async function loadMe(){
+  try{
+    const r = await fetch(API+'/api/admin/me');
+    const d = await r.json();
+    document.getElementById('me').textContent = d.username + ' · ' + d.role.toUpperCase();
+  }catch(e){
+    document.getElementById('me').textContent = 'unknown';
+  }
+}
+
+async function loadStats(){
+  try{
+    const r = await fetch(API+'/api/admin/stats');
+    const s = await r.json();
+    document.getElementById('stats').innerHTML = `
+      <div class="stat"><div class="n">${s.total_users}</div><div class="l">Tổng user</div></div>
+      <div class="stat"><div class="n">${s.admins}</div><div class="l">Admin</div></div>
+      <div class="stat"><div class="n">${s.active_sessions}</div><div class="l">Phiên active</div></div>
+      <div class="stat"><div class="n">${s.logins_24h}</div><div class="l">Login 24h</div></div>`;
+  }catch(e){}
+}
+
+async function loadUsers(){
+  try{
+    const r = await fetch(API+'/api/admin/users');
+    const d = await r.json();
+    const users = d.users || [];
+    document.getElementById('userCount').textContent = users.length;
+    const tb = document.getElementById('userTbody');
+    if(!users.length){
+      tb.innerHTML = '<tr><td colspan="7" class="empty">// chưa có user nào</td></tr>';
+      return;
+    }
+    tb.innerHTML = users.map(u => `
+      <tr>
+        <td><b style="color:var(--neon2)">${u.id}</b></td>
+        <td><b style="color:var(--txt)">${escapeHtml(u.username)}</b></td>
+        <td><span class="role-badge role-${u.role}">${u.role}</span></td>
+        <td style="font-size:11px;color:var(--txt-dim)">${fmtTime(u.created_at)}</td>
+        <td style="font-size:11px;color:var(--txt-dim)">${fmtTime(u.last_login)}</td>
+        <td style="font-size:11px;color:var(--txt-dim);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(u.note)||'<span style="color:var(--dim)">—</span>'}</td>
+        <td>
+          <div class="actions" style="justify-content:flex-end">
+            <button class="btn btn-sm btn-warn" onclick="openPwModal(${u.id},'${escapeHtml(u.username).replace(/'/g,"\\'")}')">🔑 ĐỔI MK</button>
+            <button class="btn btn-sm" onclick="toggleRole(${u.id},'${u.role==='admin'?'user':'admin'}')">⇄ ${u.role==='admin'?'→ USER':'→ ADMIN'}</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${escapeHtml(u.username).replace(/'/g,"\\'")}')">✗ XÓA</button>
+          </div>
+        </td>
+      </tr>`).join('');
+  }catch(e){
+    alertBox('Lỗi tải user: '+e, false);
+  }
+}
+
+async function postForm(url, data){
+  const fd = new FormData();
+  for(const k in data) fd.append(k, data[k]);
+  const r = await fetch(url, {method:'POST', body:fd});
+  return r.json();
+}
+
+document.getElementById('createForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  const data = {
+    username: f.username.value,
+    password: f.password.value,
+    role: f.role.value,
+    note: f.note.value,
+  };
+  const j = await postForm(API+'/api/admin/users/create', data);
+  if(j.ok){
+    alertBox(j.msg + ' (' + data.username + ' / ' + data.password + ')', true);
+    f.reset();
+    loadAll();
+  }else{
+    alertBox(j.msg || 'Lỗi tạo user', false);
+  }
+});
+
+async function deleteUser(id, name){
+  if(!confirm(`Xóa user "${name}" (ID ${id})? Không thể hoàn tác.`)) return;
+  const j = await postForm(API+'/api/admin/users/delete', {id});
+  if(j.ok){ alertBox(`Đã xóa user ${name}`, true); loadAll(); }
+  else alertBox(j.msg||'Lỗi xóa', false);
+}
+
+async function toggleRole(id, newRole){
+  if(!confirm(`Đổi vai trò user ID ${id} thành ${newRole.toUpperCase()}?`)) return;
+  const j = await postForm(API+'/api/admin/users/role', {id, role:newRole});
+  if(j.ok){ alertBox('Đã đổi vai trò', true); loadAll(); }
+  else alertBox(j.msg||'Lỗi', false);
+}
+
+function openPwModal(id, name){
+  pwUserId = id;
+  document.getElementById('pwUserName').textContent = name;
+  document.getElementById('pwInput').value = '';
+  document.getElementById('pwModal').classList.add('show');
+  setTimeout(()=>document.getElementById('pwInput').focus(), 100);
+}
+function closePwModal(){
+  document.getElementById('pwModal').classList.remove('show');
+  pwUserId = null;
+}
+async function submitPw(){
+  const pw = document.getElementById('pwInput').value;
+  if(pw.length < 4){ alert('Mật khẩu phải ≥ 4 ký tự'); return; }
+  const j = await postForm(API+'/api/admin/users/password', {id:pwUserId, password:pw});
+  closePwModal();
+  if(j.ok){ alertBox(j.msg, true); loadAll(); }
+  else alertBox(j.msg||'Lỗi', false);
+}
+
+// ESC để đóng modal
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closePwModal(); });
+
+function loadAll(){ loadMe(); loadStats(); loadUsers(); }
+loadAll();
+</script>
+</body>
+</html>
