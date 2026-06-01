@@ -373,17 +373,23 @@
     #userBar #meTag{font-size:11px}
     #userBar a{font-size:10px !important;padding:5px 10px !important}
 
-    /* CONTROLS bar — scroll ngang, button to hơn */
+    /* CONTROLS bar — scroll ngang, button KHÔNG bị co lại */
     .controls{
       top:4px;
       padding:8px; gap:5px;
       overflow-x:auto; flex-wrap:nowrap;
       scrollbar-width:none; -webkit-overflow-scrolling:touch;
+      align-items:center;
     }
     .controls::-webkit-scrollbar{display:none}
-    button,select{padding:9px 12px;font-size:12px;white-space:nowrap;letter-spacing:.8px}
-    select{padding-right:28px}
-    .auto{font-size:10px;flex-shrink:0}
+    .controls > *{flex-shrink:0 !important}   /* QUAN TRỌNG: không cho item shrink → tên menu đầy đủ */
+    .controls button,.controls select{
+      padding:9px 13px; font-size:12.5px;
+      white-space:nowrap; letter-spacing:.8px;
+      flex-shrink:0 !important;
+    }
+    .controls select{padding-right:30px;min-width:auto}
+    .auto{font-size:10px;flex-shrink:0;white-space:nowrap}
 
     /* MATCH CARDS — gọn lại */
     .match{padding:11px 12px;margin-bottom:10px}
