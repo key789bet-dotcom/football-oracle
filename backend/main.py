@@ -593,7 +593,7 @@ _COOKIE_NAME = "oracle_session"
 # Path mở (không cần login): landing, public API, login flow, assets
 _OPEN_PATHS = {"/", "/login", "/auth", "/logout", "/favicon.ico", "/health",
                "/landing.html"}
-_OPEN_PREFIXES = ("/api/public/",)
+_OPEN_PREFIXES = ("/api/public/", "/assets/")
 _frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 
 
