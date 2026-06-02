@@ -623,6 +623,71 @@ function startTicker(){
   tick();tvTicker=setInterval(tick,1300);
 }
 
+// ===== TRACKING PICKS UI =====
+function renderPicksTracking(d){
+  const pt = d.picks_tracking;
+  if(!pt) return '';
+  const STATUS_COLORS = {neon:'var(--neon)', bad:'var(--bad)', warn:'var(--warn)', dim:'var(--dim)'};
+  const card = (title, pre, current, status, livePick) => `
+    <div class="cell" style="padding:12px;display:flex;flex-direction:column;gap:6px">
+      <div class="k" style="font-size:10.5px;color:var(--warn);letter-spacing:1.5px">${title}</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <span style="font-size:10px;color:var(--dim)">🎯 PRE-MATCH</span>
+        <span style="color:var(--neon);font-weight:800">${pre}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <span style="font-size:10px;color:var(--dim)">📊 HIỆN TẠI</span>
+        <span style="color:var(--neon2);font-weight:700;font-size:12px">${current}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-top:1px dashed rgba(0,255,156,.15);padding-top:6px;margin-top:2px">
+        <span style="font-size:10px;color:var(--dim)">🔄 UPDATE</span>
+        <span style="color:var(--neon2);font-weight:700;font-size:12px">${livePick}</span>
+      </div>
+      <div style="background:rgba(${status.color==='neon'?'0,255,156':status.color==='bad'?'255,59,92':status.color==='warn'?'255,176,0':'63,107,90'},.12);
+                  border:1px solid rgba(${status.color==='neon'?'0,255,156':status.color==='bad'?'255,59,92':status.color==='warn'?'255,176,0':'63,107,90'},.4);
+                  border-radius:5px;padding:5px 9px;margin-top:4px">
+        <div style="font-weight:800;font-size:13px;color:${STATUS_COLORS[status.color]||'var(--txt)'}">${status.label}</div>
+        <div style="font-size:10.5px;color:var(--txt-dim);margin-top:2px;line-height:1.4">${status.hint}</div>
+      </div>
+    </div>`;
+
+  const c = pt.corner, ah = pt.ah, ou = pt.ou;
+  const cornerCard = card(
+    `🚩 KÈO GÓC T/X ${c.pre_match.line}`,
+    `${c.pre_match.side} (model ${(c.pre_match.prob*100).toFixed(0)}%)`,
+    `${c.current.actual} góc · phút ${c.current.minute}'`,
+    `T/X ${c.live_pick.line} → ${c.live_pick.pick} (kỳ vọng ${c.live_pick.exp_corners})`,
+    c.status,
+  );
+  const ahSideLabel = ah.pre_match.side === 'NHÀ' ? 'NHÀ' : 'KHÁCH';
+  const liveAH = pt.ah.live_pick;
+  const liveAHSide = liveAH.team || (liveAH.side === 'home' ? 'NHÀ' : 'KHÁCH');
+  const ahCard = card(
+    `⚖ CƯỢC CHẤP`,
+    `${ahSideLabel} chấp ${ah.pre_match.line>=0?'+':''}${ah.pre_match.line}`,
+    `Tỉ số ${ah.current.score} · phút ${ah.current.minute}'`,
+    `${liveAHSide} chấp ${liveAH.line>=0?'+':''}${liveAH.line} · ${(liveAH.cover*100).toFixed(0)}%`,
+    ah.status,
+  );
+  const ouCard = card(
+    `🎯 TÀI/XỈU ${ou.pre_match.line}`,
+    `${ou.pre_match.side} (model ${(ou.pre_match.prob*100).toFixed(0)}%)`,
+    `${ou.current.actual} bàn · phút ${ou.current.minute}'`,
+    `T/X ${ou.live_pick.line} → ${ou.live_pick.side} (${(ou.live_pick.prob*100).toFixed(0)}%)`,
+    ou.status,
+  );
+
+  return `<div class="match" style="margin-top:10px;border-left-color:var(--warn)">
+    <div class="vh" style="color:var(--warn)">▌ 🎯 TRACKING PICKS — đối chiếu pre-match vs thực tế</div>
+    <div class="grid2" style="grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
+      ${cornerCard}${ahCard}${ouCard}
+    </div>
+    <div class="src" style="margin-top:8px;font-size:11px">
+      🎯 Pre-match: pick ban đầu trước trận · 📊 Hiện tại: data thực · 🔄 Update: pick mới với data live · ✓/✗ Trạng thái
+    </div>
+  </div>`;
+}
+
 function renderRealOdds(d){
   const o=d.real_odds;const box=document.getElementById("tvreport");if(!box)return;
   if(!o||((!o.h2h||!o.h2h.length)&&(!o.ah||!o.ah.length)&&(!o.ou||!o.ou.length))){return;}
@@ -672,6 +737,7 @@ async function tvRender(){
       </div>
       ${(!d.real_odds || !d.real_odds.n_books) ? '<div class="src" style="background:rgba(255,176,0,.08);border:1px solid rgba(255,176,0,.3);padding:8px 12px;border-radius:6px;margin:8px 0;color:var(--warn);font-size:11.5px">⚠ <b>Giải nhỏ:</b> '+(d.league||'')+' — không có data chi tiết cho trận này. Thử <b>fixture giải lớn</b> (J1 League, Premier League, La Liga, Champions League, World Cup, Friendlies)</div>' : ''}
       <div id="ana-ticker" class="term" style="font-size:11px;min-height:15px;margin:4px 0"></div>
+      ${renderPicksTracking(d)}
       <div id="tvreport"></div>`;
     renderReport(document.getElementById("tvreport"),d);
     renderRealOdds(d);

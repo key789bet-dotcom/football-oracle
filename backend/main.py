@@ -381,6 +381,50 @@ def tv_debug(fixture_id: int):
         return {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
 
 
+def _pick_status(side: str, line: float, current: float, minute: int, finished: bool,
+                 exp_remaining: float = 0.0) -> dict:
+    """Cho 1 pick (TÀI/XỈU/NHÀ/KHÁCH), line, dữ liệu hiện tại → trạng thái.
+    Trả: {label, color, hint}."""
+    side = (side or "").upper()
+    is_over = side in ("TÀI", "OVER", "T", "NHÀ", "HOME")
+    is_under = side in ("XỈU", "UNDER", "U", "KHÁCH", "AWAY")
+    line = float(line) if line is not None else 0
+    cur = float(current)
+
+    # Đã kết thúc → trúng/trật
+    if finished:
+        if cur > line:
+            if is_over:
+                return {"label": "✓ ĐÚNG", "color": "neon", "hint": f"Kết quả {cur} > {line} → TÀI thắng"}
+            return {"label": "✗ SAI", "color": "bad", "hint": f"Kết quả {cur} > {line} → TÀI thắng (pick XỈU sai)"}
+        if cur < line:
+            if is_under:
+                return {"label": "✓ ĐÚNG", "color": "neon", "hint": f"Kết quả {cur} < {line} → XỈU thắng"}
+            return {"label": "✗ SAI", "color": "bad", "hint": f"Kết quả {cur} < {line} → XỈU thắng (pick TÀI sai)"}
+        return {"label": "= HÒA VỐN", "color": "dim", "hint": f"Đúng line {line}"}
+
+    # Còn đá: dự đoán cuối trận
+    expected_final = cur + exp_remaining
+    # TÀI: nếu expected > line → đang theo
+    if is_over:
+        if cur > line:
+            return {"label": "✓ ĐÃ ĐỦ", "color": "neon", "hint": f"Hiện {cur} > {line} → TÀI gần chắc thắng"}
+        if expected_final > line + 0.5:
+            return {"label": "▶ ĐANG THEO", "color": "neon", "hint": f"Hiện {cur:.0f} phút {minute}', dự kiến cuối ~{expected_final:.1f} > {line}"}
+        if expected_final < line - 0.5:
+            return {"label": "⚠ ĐANG LỆCH", "color": "bad", "hint": f"Dự kiến chỉ {expected_final:.1f} < {line} → nên chuyển sang XỈU"}
+        return {"label": "⚖ 50/50", "color": "warn", "hint": f"Dự kiến cuối ~{expected_final:.1f} ≈ line {line}"}
+    if is_under:
+        if cur >= line:
+            return {"label": "✗ ĐÃ THUA", "color": "bad", "hint": f"Hiện {cur} ≥ {line} → XỈU thua"}
+        if expected_final < line - 0.5:
+            return {"label": "▶ ĐANG THEO", "color": "neon", "hint": f"Dự kiến cuối ~{expected_final:.1f} < {line}"}
+        if expected_final > line + 0.5:
+            return {"label": "⚠ ĐANG LỆCH", "color": "bad", "hint": f"Dự kiến ~{expected_final:.1f} > {line} → nên chuyển sang TÀI"}
+        return {"label": "⚖ 50/50", "color": "warn", "hint": f"Dự kiến ~{expected_final:.1f} ≈ line {line}"}
+    return {"label": "?", "color": "dim", "hint": ""}
+
+
 @app.get("/api/tv_live/{fixture_id}")
 def tv_live(request: Request, fixture_id: int):
     """Phân tích IN-PLAY theo PHÚT THẬT từ thethaoviet.vip (gọi lại mỗi phút).
@@ -426,6 +470,91 @@ def tv_live(request: Request, fixture_id: int):
               "ah_pick": bets["ah_pick"],
               "corner": engine.corner_pick(lh_eff + la_eff,
                         (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0), minute)}
+
+    # ========== PRE-MATCH PICKS + VERIFICATION ==========
+    # Pick ban đầu (phút 0, 0-0) — model dự đoán trước trận
+    M_pre, _, _ = engine.live_matrix(lh, la, 0, 0, 0)
+    bets_pre = engine.betting_lines(lh, la, M_pre)
+    corner_pre = engine.corner_pick(lh + la, 0, 0)
+
+    # Trạng thái hiện tại
+    cur_corners_total = (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0)
+    cur_goals_total = gh + ga
+    score_diff = gh - ga
+    finished = (m["status"] or "").upper() in ("FT", "AET", "PEN")
+
+    # Verification 3 picks
+    # 1. Corner T/X
+    corner_line_pre = corner_pre.get("line", 9.5)
+    corner_side_pre = corner_pre.get("pick", "TÀI")
+    # góc kỳ vọng còn lại
+    corner_rem = max(0, (90 - minute) / 90) * max(0, corner_pre.get("exp_corners", 10) - cur_corners_total)
+    corner_status = _pick_status(corner_side_pre, corner_line_pre, cur_corners_total, minute, finished, exp_remaining=corner_rem)
+
+    # 2. AH (cược chấp) — pick theo home/away
+    ah_pre = bets_pre.get("ah_pick", {})
+    ah_line = ah_pre.get("line", 0)
+    ah_side = "NHÀ" if ah_pre.get("side") == "home" else ("KHÁCH" if ah_pre.get("side") == "away" else "?")
+    # Adjusted diff cho pick:
+    # nếu pick NHÀ chấp -1.5 → diff_eff = score_diff + (-1.5). Cộng kỳ vọng còn lại
+    if ah_pre.get("side") == "home":
+        adj_now = score_diff + ah_line
+        adj_rem = rem_h - rem_a
+    else:
+        adj_now = -score_diff - ah_line
+        adj_rem = rem_a - rem_h
+    ah_status = _pick_status(
+        "TÀI" if adj_now + adj_rem > 0 else "XỈU",  # bị quên: chỉ cần coverage
+        0,  # threshold
+        adj_now, minute, finished, exp_remaining=adj_rem
+    )
+    # Reuse with cover prob
+    if finished:
+        ah_status = {
+            "label": "✓ ĐÚNG" if adj_now > 0 else ("✗ SAI" if adj_now < 0 else "= HÒA VỐN"),
+            "color": "neon" if adj_now > 0 else ("bad" if adj_now < 0 else "dim"),
+            "hint": f"Tỉ số {gh}-{ga} → kèo chấp {'thắng' if adj_now > 0 else ('thua' if adj_now < 0 else 'hoà')}"
+        }
+    else:
+        adj_final = adj_now + adj_rem
+        if adj_now > 0:
+            ah_status = {"label": "▶ ĐANG THEO", "color": "neon", "hint": f"Hiện cộng {ah_line:+g}: {adj_now:+.1f} → kèo đang thắng"}
+        elif adj_final > 0.5:
+            ah_status = {"label": "▶ ĐANG THEO", "color": "neon", "hint": f"Dự kiến cuối cộng line: {adj_final:+.1f} > 0"}
+        elif adj_final < -0.5:
+            ah_status = {"label": "⚠ ĐANG LỆCH", "color": "bad", "hint": f"Dự kiến {adj_final:+.1f} < 0 → nên chuyển cửa ngược"}
+        else:
+            ah_status = {"label": "⚖ 50/50", "color": "warn", "hint": f"Dự kiến gần line {adj_final:+.1f}"}
+
+    # 3. O/U bàn thắng
+    ou_pre = bets_pre.get("ou_pick", {})
+    ou_line = ou_pre.get("line", 2.5)
+    ou_side = "TÀI" if ou_pre.get("side", "").lower() in ("tài","over","t") else "XỈU"
+    ou_rem = max(0, rem_h + rem_a)
+    ou_status = _pick_status(ou_side, ou_line, cur_goals_total, minute, finished, exp_remaining=ou_rem)
+
+    # Picks summary
+    picks_tracking = {
+        "corner": {
+            "pre_match": {"side": corner_side_pre, "line": corner_line_pre, "prob": corner_pre.get("prob"),
+                          "exp_final": corner_pre.get("exp_corners")},
+            "current": {"actual": cur_corners_total, "minute": minute, "exp_remaining": round(corner_rem, 1)},
+            "status": corner_status,
+            "live_pick": market["corner"],  # tính lại với data hiện tại
+        },
+        "ah": {
+            "pre_match": {"side": ah_side, "line": ah_line, "cover": ah_pre.get("cover")},
+            "current": {"score": f"{gh}-{ga}", "minute": minute, "adj": round(adj_now, 2)},
+            "status": ah_status,
+            "live_pick": bets["ah_pick"],
+        },
+        "ou": {
+            "pre_match": {"side": ou_side, "line": ou_line, "prob": ou_pre.get("prob")},
+            "current": {"actual": cur_goals_total, "minute": minute, "exp_remaining": round(ou_rem, 1)},
+            "status": ou_status,
+            "live_pick": bets["ou_pick"],
+        },
+    }
     verdict = predictor.build_verdict(final, market, lh_eff, la_eff)
     diff = gh - ga
     if minute >= 80 and diff != 0:
@@ -458,6 +587,7 @@ def tv_live(request: Request, fixture_id: int):
         "real_odds": odds,   # kèo thật từ thethaoviet (1×2 + chấp + Tài/Xỉu theo nhà cái)
         "ratings": {"home": None, "away": None},
         "corners": m["corners"], "total_corners": tc, "cards": m["cards"],
+        "picks_tracking": picks_tracking,
     }
 
 
