@@ -667,9 +667,10 @@ async function tvRender(){
         <div class="teams" style="font-size:16px">${d.away.name}</div>
       </div><div class="score" style="font-size:24px">${d.score.home??0} : ${d.score.away??0}</div></div>
       <div class="grid2" style="margin:6px 0">
-        <div class="cell"><div class="k">PHẠT GÓC</div><div class="v">${d.corners.home}-${d.corners.away} (tổng ${d.total_corners})</div></div>
-        <div class="cell"><div class="k">THẺ</div><div class="v">${d.cards.home_yellow+d.cards.away_yellow}🟨 ${d.cards.home_red+d.cards.away_red}🟥</div></div>
+        <div class="cell"><div class="k">PHẠT GÓC</div><div class="v">${(d.total_corners>0)?(d.corners.home+'-'+d.corners.away+' (tổng '+d.total_corners+')'):'<span style="color:var(--dim);font-size:11px">⚠ Giải nhỏ — API không có dữ liệu</span>'}</div></div>
+        <div class="cell"><div class="k">THẺ</div><div class="v">${(d.cards.home_yellow+d.cards.away_yellow+d.cards.home_red+d.cards.away_red>0)?(d.cards.home_yellow+d.cards.away_yellow+'🟨 '+(d.cards.home_red+d.cards.away_red)+'🟥'):'<span style="color:var(--dim);font-size:11px">⚠ Không có dữ liệu</span>'}</div></div>
       </div>
+      ${(!d.real_odds || !d.real_odds.n_books) ? '<div class="src" style="background:rgba(255,176,0,.08);border:1px solid rgba(255,176,0,.3);padding:8px 12px;border-radius:6px;margin:8px 0;color:var(--warn);font-size:11.5px">⚠ <b>Giải nhỏ:</b> '+(d.league||'')+' — thethaoviet không có data chi tiết. Thử <b>fixture giải lớn</b> (J1 League, Premier League, La Liga, Champions League, World Cup, Friendlies)</div>' : ''}
       <div id="ana-ticker" class="term" style="font-size:11px;min-height:15px;margin:4px 0"></div>
       <div id="tvreport"></div>`;
     renderReport(document.getElementById("tvreport"),d);
@@ -698,22 +699,44 @@ function statusBadge(m){const p=phase(m);
   if(p===2)return `<span style="color:var(--dim)">kết thúc</span>`;
   return `<span style="color:var(--neon2)">${new Date(m.date).toLocaleString('vi',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</span>`;}
 
+// Danh sách giải lớn có data đầy đủ (corners + cards + odds 10+ bookmakers)
+const BIG_LEAGUE_KEYWORDS = [
+  'premier league','la liga','primera division','serie a','bundesliga','ligue 1',
+  'champions league','europa league','conference league','europa conference',
+  'world cup','euro','copa america','africa cup','asian cup','nations league',
+  'j1 league','j-league','k league','k-league','a-league','mls','primeira',
+  'eredivisie','championship','cup','friendlies','international friendly',
+];
+function isBigLeague(name){
+  const n = (name||'').toLowerCase();
+  return BIG_LEAGUE_KEYWORDS.some(k => n.includes(k));
+}
+
 async function tvLoadList(live){
   const box=document.getElementById("tvlist");if(!box)return;
   box.innerHTML='<div class="src">đang tải danh sách trận...</div>';
   try{const d=await getJSON(`${API}/api/tv_matches?${live?'live=true':'date='+new Date().toISOString().slice(0,10)}`);
     if(d.detail){box.innerHTML='<div class="src err">! '+d.detail+'</div>';return;}
     if(!d.matches?.length){box.innerHTML='<div class="src">// không có trận '+(live?'đang đá':'hôm nay')+'.</div>';return;}
-    const ms=d.matches.slice().sort((a,b)=>phase(a)-phase(b)||(a.date||'').localeCompare(b.date||''));
-    box.innerHTML=`<div class="vh" style="margin:6px 0">▌ ${live?'TRẬN ĐANG ĐÁ':'TRẬN HÔM NAY'} (${ms.length}) — bấm để theo dõi liên tục</div>
+    // Sort: giải lớn lên đầu, sau đó theo phase + date
+    const ms=d.matches.slice().sort((a,b) => {
+      const ba = isBigLeague(a.league) ? 0 : 1;
+      const bb = isBigLeague(b.league) ? 0 : 1;
+      if(ba !== bb) return ba - bb;
+      return phase(a) - phase(b) || (a.date||'').localeCompare(b.date||'');
+    });
+    const bigCount = ms.filter(m=>isBigLeague(m.league)).length;
+    box.innerHTML=`<div class="vh" style="margin:6px 0">▌ ${live?'TRẬN ĐANG ĐÁ':'TRẬN HÔM NAY'} (${ms.length} · <span style="color:var(--neon)">⭐ ${bigCount} giải lớn</span>) — giải lớn có data đầy đủ (corners/cards/odds)</div>
       <table><thead><tr><th>Trạng thái</th><th class="name" style="text-align:left">Trận</th><th>Giải</th><th>Tỉ số</th><th></th></tr></thead><tbody>
-      ${ms.map(m=>`<tr style="${phase(m)===0?'background:rgba(255,59,92,.06)':''}">
+      ${ms.map(m=>{
+        const big = isBigLeague(m.league);
+        return `<tr style="${phase(m)===0?'background:rgba(255,59,92,.06);':''}${big?'box-shadow:inset 3px 0 0 var(--neon)':''}">
         <td>${statusBadge(m)}</td>
-        <td class="name">${m.home.name} vs ${m.away.name}</td>
-        <td style="font-size:10px;color:var(--dim)">${m.league||''}</td>
+        <td class="name">${big?'<span title="Giải lớn — có data đầy đủ" style="color:var(--neon)">⭐ </span>':''}${m.home.name} vs ${m.away.name}</td>
+        <td style="font-size:10px;color:${big?'var(--neon-dim,#0bd181)':'var(--dim)'}">${m.league||''}</td>
         <td class="rk">${m.goals.home??'-'}:${m.goals.away??'-'}</td>
-        <td><button onclick="pickTv(${m.fixture_id})" style="padding:4px 10px;font-size:11px">PHÂN TÍCH</button></td>
-      </tr>`).join("")}</tbody></table>`;
+        <td><button onclick="pickTv(${m.fixture_id})" style="padding:4px 10px;font-size:11px${big?';background:linear-gradient(135deg,var(--neon),#7aff00);color:#001a0e;font-weight:800':''}">PHÂN TÍCH</button></td>
+      </tr>`;}).join("")}</tbody></table>`;
   }catch(e){box.innerHTML='<div class="src err">! '+e+'</div>';}
 }
 
