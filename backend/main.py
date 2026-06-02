@@ -475,6 +475,28 @@ def tv_live(request: Request, fixture_id: int):
     # Pick ban đầu (phút 0, 0-0) — model dự đoán trước trận
     M_pre, _, _ = engine.live_matrix(lh, la, 0, 0, 0)
     bets_pre = engine.betting_lines(lh, la, M_pre)
+
+    # ⭐ LINE THẬT TỪ BOOKMAKER (consensus median) — thay vì 2.5/0 hardcoded
+    real_ou_line = engine.consensus_line(odds.get("ou", []) if odds else [], "line")
+    real_ah_line = engine.consensus_line(odds.get("ah", []) if odds else [], "line")
+    # Nếu API có data → dùng line thật; không thì giữ default từ engine
+    if real_ou_line is not None:
+        ou_real_pre = engine.over_under_at_line(M_pre, real_ou_line)
+        ou_real_live = engine.over_under_at_line(M, real_ou_line)
+        bets_pre["ou_pick"] = ou_real_pre
+        bets["ou_pick"] = ou_real_live
+        market["ou_pick"] = ou_real_live
+    if real_ah_line is not None:
+        ah_real_pre = engine.asian_handicap_at_line(M_pre, real_ah_line)
+        ah_real_live = engine.asian_handicap_at_line(M, real_ah_line)
+        # Map về schema cũ {team, side, line, cover}
+        for o in (ah_real_pre, ah_real_live):
+            o["team"] = "Đội nhà" if o["side"] == "home" else "Đội khách"
+        bets_pre["ah_pick"] = ah_real_pre
+        bets["ah_pick"] = ah_real_live
+        market["ah_pick"] = ah_real_live
+
+    # Corner: API thethaoviet không có corner odds → dùng heuristic engine.corner_pick
     corner_pre = engine.corner_pick(lh + la, 0, 0)
 
     # Trạng thái hiện tại

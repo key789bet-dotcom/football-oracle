@@ -136,6 +136,100 @@ def over_under(m, lines=(0.5, 1.5, 2.5, 3.5)) -> dict:
     return res
 
 
+def over_under_at_line(m, line: float) -> dict:
+    """Xác suất Tài/Xỉu cho 1 line CỤ THỂ (hỗ trợ line nguyên, nửa, quarter 0.25/0.75).
+    - Line nửa (2.5, 4.5): không push → over+under = 1.
+    - Line nguyên (3.0): có push (khi tổng = 3) → trả lại 50% cọc → cộng nửa push vào cả 2.
+    - Line quarter (3.25, 3.75): split = trung bình của 2 line nguyên+nửa kế cận."""
+    L = float(line)
+    n = len(m)
+
+    def at_one(L1):
+        over = under = push = 0.0
+        for i in range(n):
+            for j in range(n):
+                total = i + j
+                if total > L1 + 1e-9: over += m[i][j]
+                elif total < L1 - 1e-9: under += m[i][j]
+                else: push += m[i][j]
+        return over, under, push
+
+    frac = abs(L - round(L * 2) / 2)   # nếu là 0.25 line
+    is_quarter = abs(L - round(L)) > 1e-6 and abs(L - (round(L * 2) / 2)) > 1e-6
+    if is_quarter:
+        L1 = round(L - 0.25, 2)
+        L2 = round(L + 0.25, 2)
+        o1, u1, p1 = at_one(L1)
+        o2, u2, p2 = at_one(L2)
+        over = (o1 + 0.5 * p1 + o2) / 2
+        under = (u1 + 0.5 * p1 + u2) / 2
+    else:
+        o, u, p = at_one(L)
+        if p > 1e-6:
+            over = o + 0.5 * p
+            under = u + 0.5 * p
+        else:
+            over, under = o, u
+    side = "TÀI" if over >= under else "XỈU"
+    return {"line": L, "over": round(over, 4), "under": round(under, 4),
+            "side": side, "prob": round(max(over, under), 4)}
+
+
+def asian_handicap_at_line(m, line: float) -> dict:
+    """Kèo chấp cho ĐỘI NHÀ với line (vd -0.5 = nhà chấp nửa trái, +0.25 = nhà nhận quarter).
+    Hỗ trợ line quarter (±0.25/0.75)."""
+    L = float(line)
+    n = len(m)
+
+    def at_one(L1):
+        hw = aw = pu = 0.0
+        for i in range(n):
+            for j in range(n):
+                d = (i + L1) - j
+                if d > 1e-9: hw += m[i][j]
+                elif d < -1e-9: aw += m[i][j]
+                else: pu += m[i][j]
+        return hw, aw, pu
+
+    is_quarter = abs(L - round(L)) > 1e-6 and abs(L - (round(L * 2) / 2)) > 1e-6
+    if is_quarter:
+        L1 = round(L - 0.25, 2)
+        L2 = round(L + 0.25, 2)
+        h1, a1, p1 = at_one(L1)
+        h2, a2, p2 = at_one(L2)
+        home = (h1 + 0.5 * p1 + h2) / 2
+        away = (a1 + 0.5 * p1 + a2) / 2
+    else:
+        h, a, p = at_one(L)
+        if p > 1e-6:
+            home = h + 0.5 * p
+            away = a + 0.5 * p
+        else:
+            home, away = h, a
+    side = "home" if home >= away else "away"
+    return {"line": L, "home": round(home, 4), "away": round(away, 4),
+            "side": side, "cover": round(max(home, away), 4)}
+
+
+def consensus_line(rows: list[dict], key: str = "line") -> float | None:
+    """Trích line ĐỒNG THUẬN (median) từ bảng bookmaker rows = [{book, line, ...}, ...]."""
+    vals = []
+    for r in rows or []:
+        try:
+            v = r.get(key)
+            if v is None: continue
+            vals.append(float(v))
+        except (ValueError, TypeError):
+            continue
+    if not vals:
+        return None
+    vals.sort()
+    n = len(vals)
+    if n % 2 == 1:
+        return vals[n // 2]
+    return round((vals[n // 2 - 1] + vals[n // 2]) / 2, 2)
+
+
 def asian_handicap(m, lines) -> dict:
     """Kèo chấp cho ĐỘI NHÀ với mức `h` (vd -0.5 = nhà chấp nửa trái).
     Trả {home_cover, push, away_cover} cho mỗi mức (mức nguyên/nửa)."""
