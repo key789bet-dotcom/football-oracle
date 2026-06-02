@@ -628,28 +628,31 @@ function renderPicksTracking(d){
   const pt = d.picks_tracking;
   if(!pt) return '';
   const STATUS_COLORS = {neon:'var(--neon)', bad:'var(--bad)', warn:'var(--warn)', dim:'var(--dim)'};
-  const card = (title, pre, current, status, livePick) => `
+  // ⚠ THỨ TỰ THAM SỐ: title, pre, current, livePick, status
+  const card = (title, pre, current, livePick, status) => {
+    const c = status?.color || 'dim';
+    const rgb = c==='neon'?'0,255,156':c==='bad'?'255,59,92':c==='warn'?'255,176,0':'63,107,90';
+    return `
     <div class="cell" style="padding:12px;display:flex;flex-direction:column;gap:6px">
       <div class="k" style="font-size:10.5px;color:var(--warn);letter-spacing:1.5px">${title}</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <span style="font-size:10px;color:var(--dim)">🎯 PRE-MATCH</span>
-        <span style="color:var(--neon);font-weight:800">${pre}</span>
+        <span style="color:var(--neon);font-weight:800;font-size:12px">${pre||'—'}</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <span style="font-size:10px;color:var(--dim)">📊 HIỆN TẠI</span>
-        <span style="color:var(--neon2);font-weight:700;font-size:12px">${current}</span>
+        <span style="color:var(--neon2);font-weight:700;font-size:12px">${current||'—'}</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-top:1px dashed rgba(0,255,156,.15);padding-top:6px;margin-top:2px">
         <span style="font-size:10px;color:var(--dim)">🔄 UPDATE</span>
-        <span style="color:var(--neon2);font-weight:700;font-size:12px">${livePick}</span>
+        <span style="color:var(--neon2);font-weight:700;font-size:12px">${livePick||'—'}</span>
       </div>
-      <div style="background:rgba(${status.color==='neon'?'0,255,156':status.color==='bad'?'255,59,92':status.color==='warn'?'255,176,0':'63,107,90'},.12);
-                  border:1px solid rgba(${status.color==='neon'?'0,255,156':status.color==='bad'?'255,59,92':status.color==='warn'?'255,176,0':'63,107,90'},.4);
-                  border-radius:5px;padding:5px 9px;margin-top:4px">
-        <div style="font-weight:800;font-size:13px;color:${STATUS_COLORS[status.color]||'var(--txt)'}">${status.label}</div>
-        <div style="font-size:10.5px;color:var(--txt-dim);margin-top:2px;line-height:1.4">${status.hint}</div>
+      <div style="background:rgba(${rgb},.12);border:1px solid rgba(${rgb},.4);border-radius:5px;padding:5px 9px;margin-top:4px">
+        <div style="font-weight:800;font-size:13px;color:${STATUS_COLORS[c]||'var(--txt)'}">${status?.label||''}</div>
+        <div style="font-size:10.5px;color:var(--txt-dim);margin-top:2px;line-height:1.4">${status?.hint||''}</div>
       </div>
     </div>`;
+  };
 
   const c = pt.corner, ah = pt.ah, ou = pt.ou;
   const cornerCard = card(
@@ -982,9 +985,14 @@ function betBlock(mk){
 function heat(grid){
   let h='<div class="heat"><div class="lbl"></div>';
   for(let j=0;j<6;j++)h+=`<div class="lbl">K${j}</div>`;
-  const mx=Math.max(...grid.flat());
+  const flat = (grid||[]).flat();
+  const mx = flat.length ? Math.max(...flat) : 0;
+  // Empty data → show message
+  if(mx <= 0){
+    return '<div class="heat"></div><div class="src" style="text-align:center;padding:20px;color:var(--dim);font-size:11px">⚠ Trận đã kết thúc — không có ma trận xác suất</div>';
+  }
   for(let i=0;i<6;i++){h+=`<div class="lbl">N${i}</div>`;
-    for(let j=0;j<6;j++){const v=grid[i][j],a=(v/mx);
+    for(let j=0;j<6;j++){const v=(grid[i]&&grid[i][j])||0,a=v/mx;
       h+=`<div class="hc" style="background:rgba(0,255,156,${(0.08+a*0.92).toFixed(2)})" title="${i}-${j}: ${(v*100).toFixed(1)}%">${v>=0.04?(v*100).toFixed(0):""}</div>`;}}
   return h+'</div>';
 }
@@ -1068,7 +1076,10 @@ function renderReport(panel,d){
      ${d.ratings.home?` · sức mạnh nhà[att ${d.ratings.home.att}/def ${d.ratings.home.def}] khách[att ${d.ratings.away.att}/def ${d.ratings.away.def}]`:""}
      · chỉ tham khảo, không khuyến nghị cá cược</div>`;
   panel.appendChild(wrap);
-  const cv=document.getElementById(id);if(cv&&window.Chart)donut(cv,p);
+  const cv=document.getElementById(id);
+  const psum=(p.home||0)+(p.draw||0)+(p.away||0);
+  if(cv&&window.Chart&&psum>0.01)donut(cv,p);
+  else if(cv){cv.parentElement.innerHTML='<div style="text-align:center;color:var(--dim);padding:50px 10px;font-size:11px">⚠ Trận đã kết thúc<br>không có dự đoán</div>';}
   typeVerdict(wrap);   // gõ nhận định từng chữ kiểu terminal
 }
 
