@@ -857,22 +857,36 @@ function marketBlock(d){
   const mp=d.sources.market;
   if(!mp){
     return `<div class="match" style="margin-top:10px"><div class="src">
-      ⚠ KÈO THẬT: chưa lấy được — đang dùng <b style="color:var(--warn)">100% xác suất mô hình</b>.
-      Thêm ODDS_API_KEY (the-odds-api.com) vào .env để blend kèo nhà cái thật + tính value.</div></div>`;
+      ⚠ KÈO THẬT: chưa lấy được — đang dùng <b style="color:var(--warn)">100% xác suất mô hình</b>.</div></div>`;
+  }
+  // Tính odd trung bình từ real_odds.h2h (10+ bookmakers từ thethaoviet)
+  const realH2H = (d.real_odds && d.real_odds.h2h) || [];
+  const avgOdds = {home: 0, draw: 0, away: 0};
+  if(realH2H.length){
+    for(const r of realH2H){
+      avgOdds.home += r.home||0; avgOdds.draw += r.draw||0; avgOdds.away += r.away||0;
+    }
+    avgOdds.home = (avgOdds.home/realH2H.length).toFixed(2);
+    avgOdds.draw = (avgOdds.draw/realH2H.length).toFixed(2);
+    avgOdds.away = (avgOdds.away/realH2H.length).toFixed(2);
   }
   const od=d.market_odds||{},raw=od.odds||{},val=d.value;
   const cell=(k,nm)=>{
     let vline="";
     if(val){const v=val[k];const vc=v>0.05?'var(--neon)':v<-0.05?'var(--bad)':'var(--dim)';
       vline=`<div style="font-size:10px;color:${vc}">value ${v>=0?'+':''}${(v*100).toFixed(1)}%</div>`;}
+    const oddVal = raw[k] || avgOdds[k] || '-';
     return `<div class="cell"><div class="k">${nm}</div>
-      <div class="v">${(mp[k]*100).toFixed(0)}% <span style="font-size:10px;color:var(--dim)">@${raw[k]||'-'}</span></div>${vline}</div>`;};
+      <div class="v">${(mp[k]*100).toFixed(0)}% <span style="font-size:10px;color:var(--neon2)">@${oddVal}</span></div>${vline}</div>`;};
   const wpct=d.model_informed?55:90;
+  const bookLabel = realH2H.length
+    ? `<b style="color:var(--neon)">${realH2H.length} nhà cái</b> đồng thuận (TB)`
+    : (od.bookmaker||'nhà cái');
   const foot=val
     ? `value dương = model nghĩ cao hơn nhà cái (có thể có giá trị, vẫn rủi ro). value âm = nhà cái đánh giá cao hơn.`
     : `⚠ Giải này model THIẾU dữ liệu phong độ → ưu tiên kèo nhà cái (${wpct}%) và <b style="color:var(--warn)">ẩn value</b> vì lúc này value vô nghĩa. Hãy tin cột % kèo nhà cái ở trên.`;
   return `<div class="match" style="margin-top:10px;border-left-color:var(--neon2)">
-    <div class="vh" style="color:var(--neon2)">▌ KÈO THẬT — ${od.bookmaker||'nhà cái'} (đã khử biên, blend ${wpct}% vào kết quả)</div>
+    <div class="vh" style="color:var(--neon2)">▌ KÈO THẬT — ${bookLabel} (đã khử biên, blend ${wpct}% vào kết quả)</div>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
       ${cell("home","NHÀ")}${cell("draw","HÒA")}${cell("away","KHÁCH")}</div>
     <div class="src">${foot}</div>
