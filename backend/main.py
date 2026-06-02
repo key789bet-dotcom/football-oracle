@@ -1182,6 +1182,162 @@ async def _bets_auto_settle(request: Request):
     return {"ok": True, "updated": updated, "checked": len(fixture_ids), "msg": f"Đã settle {len(updated)} cược"}
 
 
+# ============ MATCH SESSION (chia vốn theo trận) ============
+
+@app.post("/api/msess/start")
+async def _msess_start(request: Request):
+    """Tạo session: user nhập vốn → tool gọi tv_live để có picks model → chia Kelly.
+    Body: {fixture_id, capital}"""
+    user = request.state.user
+    try:
+        body = await request.json()
+    except Exception:
+        form = await request.form()
+        body = dict(form)
+    fid = int(body.get("fixture_id") or 0)
+    capital = float(body.get("capital") or 0)
+    if not fid or capital <= 0:
+        return {"ok": False, "msg": "Cần fixture_id + capital > 0"}
+
+    # Gọi tv_live để có picks_tracking → bóc 3 pick (góc/AH/OU)
+    try:
+        m = thethaoviet_client.get_detail(fid)
+        if not m:
+            return {"ok": False, "msg": "Không có data trận này"}
+    except Exception as e:
+        return {"ok": False, "msg": f"API lỗi: {e}"}
+
+    lh, la = 1.35, 1.15
+    gh = m["goals"]["home"] or 0
+    ga = m["goals"]["away"] or 0
+    minute = m["minute"] or 0
+    M_pre, _, _ = engine.live_matrix(lh, la, 0, 0, 0)
+    bets_pre = engine.betting_lines(lh, la, M_pre)
+    odds = m.get("odds")
+    # Real lines
+    real_ou_line = engine.consensus_line(odds.get("ou", []) if odds else [], "line")
+    real_ah_line = engine.consensus_line(odds.get("ah", []) if odds else [], "line")
+    if real_ou_line is not None:
+        bets_pre["ou_pick"] = engine.over_under_at_line(M_pre, real_ou_line)
+    if real_ah_line is not None:
+        ah_real = engine.asian_handicap_at_line(M_pre, real_ah_line)
+        ah_real["team"] = "Đội nhà" if ah_real["side"] == "home" else "Đội khách"
+        bets_pre["ah_pick"] = ah_real
+    corner_pre = engine.corner_pick(lh + la, 0, 0, line=engine.consensus_line(
+        thethaoviet_client.get_corner_odds(fid), "line") if hasattr(thethaoviet_client, "get_corner_odds") else None)
+
+    # Odd average từ bookmakers (nếu có)
+    def avg_odd(rows, key1, key2):
+        vals = [float(r.get(key1) or 0) for r in rows or [] if r.get(key1)]
+        return round(sum(vals) / len(vals), 2) if vals else 1.9
+    ou_odd = avg_odd((odds or {}).get("ou", []),
+                     "over" if bets_pre["ou_pick"]["side"] in ("TÀI", "tài", "over") else "under", None)
+    ah_odd = avg_odd((odds or {}).get("ah", []),
+                     "home" if bets_pre["ah_pick"]["side"] == "home" else "away", None)
+    corner_odd = 1.9  # API thường không có corner odds → default
+
+    picks = [
+        {
+            "type": "corner", "label": "Kèo phạt góc T/X",
+            "side": corner_pre["pick"], "line": corner_pre["line"],
+            "prob": corner_pre["prob"], "odd": corner_odd,
+        },
+        {
+            "type": "ah", "label": "Cược chấp",
+            "side": bets_pre["ah_pick"]["side"], "line": bets_pre["ah_pick"]["line"],
+            "team": bets_pre["ah_pick"].get("team", ""),
+            "prob": bets_pre["ah_pick"].get("cover") or 0,
+            "odd": ah_odd,
+        },
+        {
+            "type": "ou", "label": "Tài/Xỉu bàn thắng",
+            "side": bets_pre["ou_pick"]["side"], "line": bets_pre["ou_pick"]["line"],
+            "prob": bets_pre["ou_pick"]["prob"], "odd": ou_odd,
+        },
+    ]
+
+    sid = users_db.msess_create(
+        user["id"], fid, capital, picks,
+        home=m["home"]["name"], away=m["away"]["name"], league=m["league"],
+    )
+    sess = users_db.msess_get(user["id"], session_id=sid)
+    return {"ok": True, "session": sess}
+
+
+@app.get("/api/msess/{session_id}")
+def _msess_get(request: Request, session_id: int):
+    user = request.state.user
+    s = users_db.msess_get(user["id"], session_id=session_id)
+    if not s:
+        raise HTTPException(404, "Không tìm thấy session")
+    return s
+
+
+@app.get("/api/msess/by_fixture/{fixture_id}")
+def _msess_by_fixture(request: Request, fixture_id: int):
+    """Lấy session OPEN của fixture (nếu có) — UI dùng để check user đã setup vốn chưa."""
+    user = request.state.user
+    s = users_db.msess_get(user["id"], fixture_id=fixture_id)
+    return {"session": s}
+
+
+@app.post("/api/msess/{session_id}/settle")
+async def _msess_settle_route(request: Request, session_id: int):
+    """Settle session khi trận FT: tự fetch tỉ số + góc rồi tính PnL."""
+    user = request.state.user
+    s = users_db.msess_get(user["id"], session_id=session_id)
+    if not s:
+        raise HTTPException(404, "Không tìm thấy session")
+    try:
+        m = thethaoviet_client.get_detail(s["fixture_id"])
+        if not m:
+            return {"ok": False, "msg": "Không lấy được data trận"}
+        status = (m.get("status") or "").upper()
+        if status not in ("FT", "AET", "PEN"):
+            return {"ok": False, "msg": f"Trận chưa kết thúc (status={status})"}
+        gh = m["goals"]["home"] or 0
+        ga = m["goals"]["away"] or 0
+        tc = (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0)
+    except Exception as e:
+        return {"ok": False, "msg": f"Lỗi API: {e}"}
+    result = users_db.msess_settle(user["id"], session_id, gh, ga, tc)
+    return result
+
+
+@app.post("/api/msess/{session_id}/manual_settle")
+async def _msess_manual_settle(request: Request, session_id: int):
+    """User nhập tay tỉ số + góc để settle (khi API không có data)."""
+    user = request.state.user
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    gh = int(body.get("home_score") or 0)
+    ga = int(body.get("away_score") or 0)
+    tc = body.get("total_corners")
+    tc = int(tc) if tc is not None and str(tc).strip() != "" else None
+    return users_db.msess_settle(user["id"], session_id, gh, ga, tc)
+
+
+@app.post("/api/msess/{session_id}/delete")
+def _msess_delete(request: Request, session_id: int):
+    user = request.state.user
+    users_db.msess_delete(user["id"], session_id)
+    return {"ok": True}
+
+
+@app.get("/api/msess/list")
+def _msess_list(request: Request, status: str = ""):
+    user = request.state.user
+    return {"items": users_db.msess_list(user["id"], status=status)}
+
+
+@app.get("/api/msess/stats")
+def _msess_stats(request: Request):
+    user = request.state.user
+    return users_db.msess_stats(user["id"])
+
+
 # ============ FRONTEND STATIC (đặt CUỐI cùng) ============
 # Phục vụ frontend tĩnh — index.html ở "/", các file khác theo path
 if os.path.isdir(_frontend_dir):

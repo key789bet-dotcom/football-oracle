@@ -84,6 +84,23 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_bets_user ON user_bets(user_id);
         CREATE INDEX IF NOT EXISTS idx_bets_status ON user_bets(user_id, status);
         CREATE INDEX IF NOT EXISTS idx_bets_placed ON user_bets(user_id, placed_at DESC);
+
+        -- ============ MATCH SESSIONS — chia vốn theo trận ============
+        CREATE TABLE IF NOT EXISTS match_sessions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            fixture_id INTEGER NOT NULL,
+            home_team TEXT, away_team TEXT, league TEXT,
+            capital REAL NOT NULL,              -- vốn user nhập đầu trận
+            allocations_json TEXT NOT NULL,     -- JSON list picks: [{type, side, line, prob, odd, stake, status, pnl}]
+            total_pnl REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'open',-- 'open' | 'closed' | 'cancelled'
+            created_at INTEGER NOT NULL,
+            settled_at INTEGER,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_msess_user ON match_sessions(user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_msess_fix ON match_sessions(user_id, fixture_id);
         """)
         # Migration: thêm cột points nếu users đã tồn tại từ trước nhưng chưa có
         try:
@@ -755,3 +772,233 @@ def bets_stats(user_id: int):
         "by_league": by_league,
         "by_type": by_type,
     }
+
+
+# ==================== MATCH SESSIONS ====================
+import json as _json
+
+
+def allocate_kelly(capital: float, picks: list[dict], fraction: float = 0.25,
+                   max_per_pick: float = 0.5) -> list[dict]:
+    """Chia vốn theo Kelly cho nhiều pick.
+    picks: [{type, side, line, prob, odd, ...}]
+    Trả về picks với thêm field 'stake' (số điểm gợi ý đặt).
+
+    Kelly: f* = (p*odd - 1) / (odd - 1).  Dùng fractional Kelly (0.25) để safer.
+    max_per_pick: trần stake mỗi pick (0.5 = 50% capital).
+    """
+    if capital <= 0 or not picks:
+        return picks
+    # Tính raw Kelly cho từng pick
+    kellies = []
+    for pk in picks:
+        p = max(0.0, min(1.0, float(pk.get("prob") or 0)))
+        odd = float(pk.get("odd") or 2.0)
+        if odd <= 1:
+            f = 0
+        else:
+            b = odd - 1
+            f_full = (p * odd - 1) / b
+            f = max(0.0, f_full * fraction)
+        f = min(f, max_per_pick)
+        kellies.append(f)
+    total_f = sum(kellies)
+    # Nếu tổng > 1 → normalize để tổng stake không vượt vốn
+    if total_f > 1:
+        kellies = [f / total_f for f in kellies]
+    # Gắn stake vào pick
+    out = []
+    for pk, f in zip(picks, kellies):
+        new_pk = dict(pk)
+        new_pk["stake"] = round(capital * f, 2)
+        new_pk["kelly_fraction"] = round(f, 4)
+        new_pk["status"] = "pending"
+        new_pk["pnl"] = 0.0
+        out.append(new_pk)
+    return out
+
+
+def evaluate_pick(pick: dict, home_score: int, away_score: int,
+                  total_corners: int = None) -> tuple[str, float]:
+    """Đánh giá 1 pick theo tỉ số cuối + góc.
+    pick = {type, side, line, odd, stake, ...}
+    Trả (status, pnl).
+    Status: 'won' | 'lost' | 'push' | 'half_won' | 'half_lost'
+    PnL: lãi/lỗ tính từ stake & odd."""
+    bt = (pick.get("type") or "").lower()
+    side = (pick.get("side") or "").lower()
+    line = float(pick.get("line") or 0)
+    odd = float(pick.get("odd") or 2.0)
+    stake = float(pick.get("stake") or 0)
+    diff = home_score - away_score
+    total_goals = home_score + away_score
+
+    if bt in ("ou", "over_under", "tài_xỉu"):
+        actual = total_goals
+        if actual > line:
+            won = side in ("over", "tài", "tai", "t")
+        elif actual < line:
+            won = side in ("under", "xỉu", "xiu", "u")
+        else:   # push (line nguyên)
+            return ("push", 0.0)
+        if won:
+            return ("won", round(stake * (odd - 1), 2))
+        return ("lost", round(-stake, 2))
+
+    if bt in ("ah", "hdp", "handicap"):
+        # line cho ĐỘI NHÀ. side='home' nghĩa pick nhà.
+        adj = diff + line if side == "home" else -diff - line
+        if adj > 0.01:
+            return ("won", round(stake * (odd - 1), 2))
+        if adj < -0.01:
+            return ("lost", round(-stake, 2))
+        return ("push", 0.0)
+
+    if bt == "corner":
+        if total_corners is None:
+            return ("pending", 0.0)
+        if total_corners > line:
+            won = side in ("tài", "tai", "over", "t")
+        elif total_corners < line:
+            won = side in ("xỉu", "xiu", "under", "u")
+        else:
+            return ("push", 0.0)
+        if won:
+            return ("won", round(stake * (odd - 1), 2))
+        return ("lost", round(-stake, 2))
+
+    if bt == "1x2":
+        if diff > 0: actual = "home"
+        elif diff < 0: actual = "away"
+        else: actual = "draw"
+        if side == actual:
+            return ("won", round(stake * (odd - 1), 2))
+        return ("lost", round(-stake, 2))
+
+    return ("pending", 0.0)
+
+
+def msess_create(user_id: int, fixture_id: int, capital: float,
+                 picks: list[dict], home: str = "", away: str = "", league: str = "") -> int:
+    """Tạo session mới hoặc update nếu đã có cho fixture đang open."""
+    now = int(time.time())
+    allocated = allocate_kelly(capital, picks)
+    with _conn() as c:
+        # Nếu đã có session open cho fixture này → update
+        existing = c.execute(
+            "SELECT id FROM match_sessions WHERE user_id=? AND fixture_id=? AND status='open'",
+            (user_id, fixture_id),
+        ).fetchone()
+        if existing:
+            sid = existing[0]
+            c.execute(
+                "UPDATE match_sessions SET capital=?, allocations_json=?, home_team=?, away_team=?, league=? WHERE id=?",
+                (capital, _json.dumps(allocated, ensure_ascii=False), home, away, league, sid),
+            )
+            return sid
+        cur = c.execute(
+            "INSERT INTO match_sessions(user_id,fixture_id,home_team,away_team,league,capital,allocations_json,total_pnl,status,created_at) "
+            "VALUES (?,?,?,?,?,?,?,0,'open',?)",
+            (user_id, fixture_id, home, away, league, capital, _json.dumps(allocated, ensure_ascii=False), now),
+        )
+        return cur.lastrowid
+
+
+def msess_get(user_id: int, fixture_id: int = None, session_id: int = None) -> dict | None:
+    """Lấy 1 session theo fixture (đang open) hoặc theo session_id."""
+    with _conn() as c:
+        if session_id:
+            row = c.execute(
+                "SELECT id,user_id,fixture_id,home_team,away_team,league,capital,allocations_json,total_pnl,status,created_at,settled_at "
+                "FROM match_sessions WHERE id=? AND user_id=?",
+                (session_id, user_id),
+            ).fetchone()
+        else:
+            row = c.execute(
+                "SELECT id,user_id,fixture_id,home_team,away_team,league,capital,allocations_json,total_pnl,status,created_at,settled_at "
+                "FROM match_sessions WHERE user_id=? AND fixture_id=? AND status='open' ORDER BY id DESC LIMIT 1",
+                (user_id, fixture_id),
+            ).fetchone()
+    if not row:
+        return None
+    return _msess_row_to_dict(row)
+
+
+def _msess_row_to_dict(row) -> dict:
+    return {
+        "id": row[0], "user_id": row[1], "fixture_id": row[2],
+        "home_team": row[3], "away_team": row[4], "league": row[5],
+        "capital": row[6],
+        "picks": _json.loads(row[7] or "[]"),
+        "total_pnl": row[8],
+        "status": row[9],
+        "created_at": row[10], "settled_at": row[11],
+    }
+
+
+def msess_settle(user_id: int, session_id: int, home_score: int, away_score: int,
+                 total_corners: int = None) -> dict:
+    """Settle 1 session khi trận FT: tính PnL từng pick + total → close session."""
+    sess = msess_get(user_id, session_id=session_id)
+    if not sess:
+        return {"ok": False, "msg": "Không tìm thấy session"}
+    if sess["status"] != "open":
+        return {"ok": False, "msg": "Session đã đóng"}
+    new_picks = []
+    total_pnl = 0.0
+    for pk in sess["picks"]:
+        status, pnl = evaluate_pick(pk, home_score, away_score, total_corners)
+        pk2 = dict(pk)
+        pk2["status"] = status
+        pk2["pnl"] = pnl
+        total_pnl += pnl
+        new_picks.append(pk2)
+    now = int(time.time())
+    with _conn() as c:
+        c.execute(
+            "UPDATE match_sessions SET allocations_json=?, total_pnl=?, status='closed', settled_at=? WHERE id=?",
+            (_json.dumps(new_picks, ensure_ascii=False), round(total_pnl, 2), now, session_id),
+        )
+    return {"ok": True, "total_pnl": round(total_pnl, 2), "picks": new_picks,
+            "score": f"{home_score}-{away_score}", "total_corners": total_corners}
+
+
+def msess_list(user_id: int, status: str = "", limit: int = 100) -> list[dict]:
+    """List session của user."""
+    q = "SELECT id,user_id,fixture_id,home_team,away_team,league,capital,allocations_json,total_pnl,status,created_at,settled_at FROM match_sessions WHERE user_id=?"
+    params = [user_id]
+    if status:
+        q += " AND status=?"
+        params.append(status)
+    q += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with _conn() as c:
+        rows = c.execute(q, params).fetchall()
+    return [_msess_row_to_dict(r) for r in rows]
+
+
+def msess_stats(user_id: int) -> dict:
+    """Tổng hợp PnL toàn bộ session."""
+    sessions = msess_list(user_id, status="closed", limit=10000)
+    total_capital = sum(s["capital"] for s in sessions)
+    total_pnl = sum(s["total_pnl"] for s in sessions)
+    wins = sum(1 for s in sessions if s["total_pnl"] > 0)
+    losses = sum(1 for s in sessions if s["total_pnl"] < 0)
+    flat = sum(1 for s in sessions if s["total_pnl"] == 0)
+    open_n = len(msess_list(user_id, status="open"))
+    roi = (total_pnl / total_capital) if total_capital > 0 else 0
+    return {
+        "total_sessions": len(sessions),
+        "open_sessions": open_n,
+        "wins": wins, "losses": losses, "flat": flat,
+        "win_rate": round(wins / len(sessions), 4) if sessions else 0,
+        "total_capital": round(total_capital, 2),
+        "total_pnl": round(total_pnl, 2),
+        "roi": round(roi, 4),
+    }
+
+
+def msess_delete(user_id: int, session_id: int) -> bool:
+    with _conn() as c:
+        c.execute("DELETE FROM match_sessions WHERE id=? AND user_id=?", (session_id, user_id))
+    return True

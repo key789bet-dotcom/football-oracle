@@ -749,6 +749,8 @@ async function tvRender(){
     if(d.detail){box.innerHTML='<div class="src err">! '+d.detail+'</div>';clearInterval(tvTicker);return;}
     // Refresh điểm (vì có thể vừa trừ)
     loadMe();
+    // ⭐ Load match session (chia vốn theo trận)
+    const sess = await loadMsess(tvId);
     const fin=["FT","AET","PEN"].includes((d.status||'').toUpperCase());
     box.innerHTML=`
       <div class="row"><div>
@@ -766,8 +768,17 @@ async function tvRender(){
       </div>
       ${(!d.real_odds || !d.real_odds.n_books) ? '<div class="src" style="background:rgba(255,176,0,.08);border:1px solid rgba(255,176,0,.3);padding:8px 12px;border-radius:6px;margin:8px 0;color:var(--warn);font-size:11.5px">⚠ <b>Giải nhỏ:</b> '+(d.league||'')+' — không có data chi tiết cho trận này. Thử <b>fixture giải lớn</b> (J1 League, Premier League, La Liga, Champions League, World Cup, Friendlies)</div>' : ''}
       <div id="ana-ticker" class="term" style="font-size:11px;min-height:15px;margin:4px 0"></div>
+      ${renderMsess(sess)}
       ${renderPicksTracking(d)}
       <div id="tvreport"></div>`;
+    // Tự động settle nếu trận FT + còn session open
+    if(fin && sess && sess.status==='open'){
+      try{
+        const r=await fetch(`${API}/api/msess/${sess.id}/settle`,{method:'POST'});
+        const j=await r.json();
+        if(j.ok){console.log('Auto-settled session',sess.id,'PnL:',j.total_pnl);}
+      }catch(e){}
+    }
     renderReport(document.getElementById("tvreport"),d);
     renderRealOdds(d);
     if(fin){clearInterval(tvTicker);const e=document.getElementById("ana-ticker");if(e)e.innerHTML='<span style="color:var(--dim)">// trận đã kết thúc — dừng phân tích trực tiếp.</span>';}
@@ -778,11 +789,163 @@ async function tvRender(){
 async function pickTv(id){
   const ok = await confirmCost(id);
   if(!ok) return;
+  // ⭐ HỎI SỐ VỐN trước khi phân tích — nếu chưa có session cho fixture này
+  let sess = null;
+  try{
+    const r=await fetch(`${API}/api/msess/by_fixture/${id}`);
+    if(r.ok){const j=await r.json();sess=j.session;}
+  }catch(e){}
+  if(!sess){
+    const cap = await askCapitalModal();
+    if(cap === null){ /* user huỷ → vẫn phân tích nhưng không chia vốn */ }
+    else if(cap > 0){
+      try{
+        const r=await fetch(`${API}/api/msess/start`,{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({fixture_id: id, capital: cap})
+        });
+        const j=await r.json();
+        if(!j.ok){alert('Lỗi tạo session: '+j.msg);}
+      }catch(e){alert('Lỗi: '+e);}
+    }
+  }
   const el=document.getElementById("tvid");
   if(el) el.value=id;
   tvId=String(id); localStorage.setItem("tvId",tvId);
   tvRender();
   window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// Modal hỏi số điểm
+function askCapitalModal(){
+  return new Promise(resolve=>{
+    const bg=document.createElement('div');
+    bg.style.cssText='position:fixed;inset:0;background:rgba(2,5,12,.92);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(8px)';
+    bg.innerHTML=`
+      <div style="background:var(--panel);border:1px solid var(--neon);border-radius:10px;padding:24px;max-width:460px;width:100%;box-shadow:0 0 40px rgba(0,255,156,.3)">
+        <div style="font-size:18px;color:var(--neon);font-weight:800;letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 12px rgba(0,255,156,.6)">💰 CHIA VỐN TRẬN ĐẤU</div>
+        <div style="color:var(--txt);font-size:13px;line-height:1.6;margin-bottom:16px">
+          Bạn vui lòng cho tôi biết <b style="color:var(--neon2)">số điểm muốn chơi tham khảo trận này</b> là bao nhiêu để tôi phân tích và chia vốn đảm bảo mang lại lợi nhuận hợp lý cho bạn.
+        </div>
+        <div style="background:rgba(0,255,156,.05);border:1px dashed rgba(0,255,156,.2);border-radius:6px;padding:10px;margin-bottom:14px;font-size:11.5px;color:var(--txt-dim)">
+          📊 Tool sẽ dùng <b style="color:var(--warn)">Kelly Criterion</b> để chia vốn cho 3 kèo: <b>Góc T/X · Cược chấp · Tài/Xỉu</b><br>
+          🎯 Stake từng kèo dựa trên xác suất model + tỷ lệ ăn → tối ưu lợi nhuận, giới hạn rủi ro<br>
+          ✓ Kết thúc trận: auto settle + thống kê lãi/lỗ
+        </div>
+        <input type="number" id="capInput" placeholder="VD: 100 điểm" min="1" step="1"
+               style="width:100%;background:var(--panel3);border:1px solid var(--neon-dim);color:var(--neon);padding:12px 14px;font-family:inherit;font-size:16px;border-radius:6px;margin-bottom:14px;font-weight:700;letter-spacing:1px">
+        <div style="display:flex;gap:8px">
+          <button id="capCancel" style="flex:1;background:rgba(255,59,92,.1);border:1px solid rgba(255,59,92,.4);color:var(--bad);padding:10px;font-family:inherit;font-weight:700;border-radius:6px;cursor:pointer;letter-spacing:1px">BỎ QUA</button>
+          <button id="capOK" style="flex:2;background:var(--neon);border:none;color:#000;padding:10px;font-family:inherit;font-weight:800;border-radius:6px;cursor:pointer;letter-spacing:2px">✓ PHÂN TÍCH</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bg);
+    const input=bg.querySelector('#capInput');
+    setTimeout(()=>input.focus(), 50);
+    const close=v=>{document.body.removeChild(bg);resolve(v);};
+    bg.querySelector('#capCancel').onclick=()=>close(null);
+    bg.querySelector('#capOK').onclick=()=>{
+      const v=parseFloat(input.value);
+      if(isNaN(v)||v<=0){alert('Vui lòng nhập số điểm > 0');return;}
+      close(v);
+    };
+    input.addEventListener('keydown',e=>{if(e.key==='Enter')bg.querySelector('#capOK').click();});
+    bg.addEventListener('click',e=>{if(e.target===bg)close(null);});
+  });
+}
+
+// Render bảng chia vốn session
+function renderMsess(sess){
+  if(!sess) return '';
+  const COL={pending:'var(--neon2)',won:'var(--neon)',lost:'var(--bad)',push:'var(--warn)',half_won:'var(--neon-dim)',half_lost:'var(--bad-dim)'};
+  const ICON={pending:'⏳',won:'✓',lost:'✗',push:'=',half_won:'½✓',half_lost:'½✗'};
+  const totStake = sess.picks.reduce((a,p)=>a+(p.stake||0),0);
+  const remain = sess.capital - totStake;
+  const isClosed = sess.status === 'closed';
+  const pnlColor = sess.total_pnl > 0 ? 'var(--neon)' : sess.total_pnl < 0 ? 'var(--bad)' : 'var(--dim)';
+  const finalBank = sess.capital + sess.total_pnl;
+
+  return `<div class="match" style="margin-top:10px;border-left-color:var(--neon)">
+    <div class="vh" style="color:var(--neon);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+      <span>▌ 💰 CHIA VỐN TRẬN — KELLY ALLOCATION</span>
+      <span style="font-size:11px;color:var(--txt-dim)">${isClosed?'✓ ĐÃ ĐÓNG':'⏳ ĐANG MỞ'}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
+      <div class="cell"><div class="k">VỐN ĐẦU</div><div class="v" style="color:var(--neon2)">${sess.capital} đ</div></div>
+      <div class="cell"><div class="k">ĐÃ ĐẶT</div><div class="v" style="color:var(--warn)">${totStake.toFixed(0)} đ</div></div>
+      <div class="cell"><div class="k">${isClosed?'KẾT QUẢ':'CÒN LẠI'}</div>
+        <div class="v" style="color:${isClosed?pnlColor:'var(--txt)'}">${isClosed?(sess.total_pnl>=0?'+':'')+sess.total_pnl.toFixed(0)+' đ':remain.toFixed(0)+' đ'}</div></div>
+    </div>
+    <table style="margin-top:8px;width:100%;font-size:11.5px">
+      <thead><tr style="color:var(--neon-dim);font-size:10px;letter-spacing:1px">
+        <th style="text-align:left;padding:6px">KÈO</th><th>SIDE</th><th>LINE</th><th>%</th><th>ODD</th><th>STAKE</th><th>STATUS</th><th>PNL</th>
+      </tr></thead>
+      <tbody>
+      ${sess.picks.map(p=>{
+        const c=COL[p.status]||'var(--dim)';
+        const labelMap={corner:'🚩 Góc T/X',ah:'⚖ Cược chấp',ou:'🎯 Tài/Xỉu'};
+        return `<tr>
+          <td style="padding:6px;color:var(--txt)">${labelMap[p.type]||p.type}</td>
+          <td class="rk" style="font-weight:700">${p.side}${p.team?'<br><span style="font-size:9px;color:var(--dim)">'+p.team+'</span>':''}</td>
+          <td class="rk">${p.line>=0&&p.type==='ah'?'+':''}${p.line}</td>
+          <td class="rk">${((p.prob||0)*100).toFixed(0)}%</td>
+          <td class="rk">${(p.odd||0).toFixed(2)}</td>
+          <td class="rk" style="color:var(--warn);font-weight:700">${(p.stake||0).toFixed(0)}</td>
+          <td class="rk" style="color:${c};font-weight:800">${ICON[p.status]||'?'} ${p.status||'-'}</td>
+          <td class="rk" style="color:${p.pnl>0?'var(--neon)':p.pnl<0?'var(--bad)':'var(--dim)'};font-weight:700">${p.pnl?(p.pnl>0?'+':'')+p.pnl.toFixed(0):'—'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+    ${isClosed?`
+      <div style="margin-top:10px;padding:10px;background:rgba(${sess.total_pnl>=0?'0,255,156':'255,59,92'},.08);border:1px solid rgba(${sess.total_pnl>=0?'0,255,156':'255,59,92'},.4);border-radius:6px;font-size:12px;color:var(--txt)">
+        🏁 <b style="color:${pnlColor}">KẾT THÚC:</b> Vốn ${sess.capital}đ → ${finalBank.toFixed(0)}đ
+        <span style="color:${pnlColor};font-weight:800;margin-left:8px">(${sess.total_pnl>=0?'+':''}${sess.total_pnl.toFixed(0)}đ · ROI ${((sess.total_pnl/sess.capital)*100).toFixed(1)}%)</span>
+      </div>`:`
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="msessSettle(${sess.id})" style="background:rgba(0,255,156,.1);border:1px solid var(--neon);color:var(--neon);padding:6px 12px;font-family:inherit;font-size:11px;border-radius:5px;cursor:pointer;font-weight:700">🏁 SETTLE (trận FT)</button>
+        <button onclick="msessManualSettle(${sess.id})" style="background:rgba(255,176,0,.1);border:1px solid var(--warn);color:var(--warn);padding:6px 12px;font-family:inherit;font-size:11px;border-radius:5px;cursor:pointer;font-weight:700">✏️ Settle tay</button>
+        <button onclick="msessDelete(${sess.id})" style="background:rgba(255,59,92,.1);border:1px solid var(--bad);color:var(--bad);padding:6px 12px;font-family:inherit;font-size:11px;border-radius:5px;cursor:pointer;font-weight:700">🗑 Huỷ</button>
+      </div>`}
+    <div class="src" style="margin-top:6px;font-size:10.5px">💡 Kelly fractional (¼): stake = vốn × p×odd-1 / (odd-1) × 0.25 — cân bằng giữa tối đa hoá vốn & giảm phương sai</div>
+  </div>`;
+}
+
+async function loadMsess(fid){
+  try{
+    const r=await fetch(`${API}/api/msess/by_fixture/${fid}`);
+    if(!r.ok) return null;
+    const j=await r.json();
+    return j.session;
+  }catch(e){return null;}
+}
+async function msessSettle(sid){
+  if(!confirm('Settle session này? (chỉ áp dụng khi trận đã FT)')) return;
+  const r=await fetch(`${API}/api/msess/${sid}/settle`,{method:'POST'});
+  const j=await r.json();
+  if(!j.ok){alert('❌ '+j.msg);return;}
+  alert(`✓ Settle xong!\nTỉ số: ${j.score}\nTổng PnL: ${j.total_pnl>=0?'+':''}${j.total_pnl}đ`);
+  tvRender();
+}
+async function msessManualSettle(sid){
+  const score=prompt('Nhập tỉ số cuối (vd 2-1):');
+  if(!score) return;
+  const m=score.trim().match(/^(\d+)\s*[-:\s]\s*(\d+)$/);
+  if(!m){alert('Sai định dạng. VD: 2-1');return;}
+  const tc=prompt('Tổng số góc (để trống nếu không có data, kèo góc sẽ push):');
+  const r=await fetch(`${API}/api/msess/${sid}/manual_settle`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({home_score:+m[1],away_score:+m[2],total_corners:tc?+tc:null})
+  });
+  const j=await r.json();
+  if(!j.ok){alert('❌ '+j.msg);return;}
+  alert(`✓ Settle: ${m[1]}-${m[2]}, góc=${tc||'—'}, PnL: ${j.total_pnl>=0?'+':''}${j.total_pnl}đ`);
+  tvRender();
+}
+async function msessDelete(sid){
+  if(!confirm('Huỷ session này?')) return;
+  await fetch(`${API}/api/msess/${sid}/delete`,{method:'POST'});
+  tvRender();
 }
 const LIVE_S=["1H","2H","HT","ET","BT","P","LIVE","INT","SUSP"];
 const DONE_S=["FT","AET","PEN","AWD","WO"];
