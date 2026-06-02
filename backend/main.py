@@ -439,10 +439,11 @@ def tv_live(request: Request, fixture_id: int,
         raise HTTPException(status_code=502, detail=f"Không gọi được thethaoviet: {e}")
     if not m:
         raise HTTPException(status_code=404, detail="Không có dữ liệu trận này.")
-    # ⭐ MANUAL OVERRIDE corners khi user nhập từ UI
+    # ⭐ MANUAL OVERRIDE corners khi user nhập từ UI → coi như có data thật
     if ch is not None or ca is not None:
         m["corners"] = {"home": int(ch or 0), "away": int(ca or 0)}
         m["_corner_source"] = "user-override"
+        m["has_corner_data"] = True
     gh = m["goals"]["home"] or 0
     ga = m["goals"]["away"] or 0
     minute = m["minute"] or 0
@@ -502,21 +503,25 @@ def tv_live(request: Request, fixture_id: int,
         bets["ah_pick"] = ah_real_live
         market["ah_pick"] = ah_real_live
 
-    # Corner: thử lấy corner odds thật từ API (bet_id 45/14/...); nếu không có → line động
+    # ⭐ CORNER: CHỈ phân tích khi API có data THẬT (góc thật hoặc bookmaker odds góc)
     real_corner_odds = []
     try:
         real_corner_odds = thethaoviet_client.get_corner_odds(fixture_id)
     except Exception as _e:
         real_corner_odds = []
     real_corner_line = engine.consensus_line(real_corner_odds, "line")
-    # Pre-match: nếu API có corner line thật → dùng; không thì engine tự chọn line .5 gần exp_full
-    corner_pre = engine.corner_pick(lh + la, 0, 0, line=real_corner_line)
-    # LIVE corner pick — dùng số góc hiện tại + phút + giữ đúng line như pre-match (để verify đúng)
-    cur_corners_total_for_live = (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0)
-    market["corner"] = engine.corner_pick(
-        lh_eff + la_eff, cur_corners_total_for_live, minute,
-        line=real_corner_line if real_corner_line is not None else corner_pre["line"],
-    )
+    has_corner = bool(m.get("has_corner_data")) or bool(real_corner_odds)
+    if has_corner:
+        corner_pre = engine.corner_pick(lh + la, 0, 0, line=real_corner_line)
+        cur_corners_total_for_live = (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0)
+        market["corner"] = engine.corner_pick(
+            lh_eff + la_eff, cur_corners_total_for_live, minute,
+            line=real_corner_line if real_corner_line is not None else corner_pre["line"],
+        )
+    else:
+        # Không có data góc thật → KHÔNG phân tích, KHÔNG đoán mò
+        corner_pre = None
+        market["corner"] = None
 
     # Trạng thái hiện tại
     cur_corners_total = (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0)
@@ -525,12 +530,21 @@ def tv_live(request: Request, fixture_id: int,
     finished = (m["status"] or "").upper() in ("FT", "AET", "PEN")
 
     # Verification 3 picks
-    # 1. Corner T/X
-    corner_line_pre = corner_pre.get("line", 9.5)
-    corner_side_pre = corner_pre.get("pick", "TÀI")
-    # góc kỳ vọng còn lại
-    corner_rem = max(0, (90 - minute) / 90) * max(0, corner_pre.get("exp_corners", 10) - cur_corners_total)
-    corner_status = _pick_status(corner_side_pre, corner_line_pre, cur_corners_total, minute, finished, exp_remaining=corner_rem)
+    # 1. Corner T/X — CHỈ phân tích khi có data THẬT
+    if corner_pre is not None and has_corner:
+        corner_line_pre = corner_pre.get("line", 9.5)
+        corner_side_pre = corner_pre.get("pick", "TÀI")
+        corner_rem = max(0, (90 - minute) / 90) * max(0, corner_pre.get("exp_corners", 10) - cur_corners_total)
+        corner_status = _pick_status(corner_side_pre, corner_line_pre, cur_corners_total, minute, finished, exp_remaining=corner_rem)
+    else:
+        corner_line_pre = None
+        corner_side_pre = None
+        corner_rem = 0
+        corner_status = {
+            "label": "✕ KHÔNG PHÂN TÍCH",
+            "color": "dim",
+            "hint": "API không có dữ liệu phạt góc cho trận này — hệ thống không đoán mò.",
+        }
 
     # 2. AH (cược chấp) — pick theo home/away
     ah_pre = bets_pre.get("ah_pick", {})
@@ -577,11 +591,19 @@ def tv_live(request: Request, fixture_id: int,
     # Picks summary
     picks_tracking = {
         "corner": {
-            "pre_match": {"side": corner_side_pre, "line": corner_line_pre, "prob": corner_pre.get("prob"),
-                          "exp_final": corner_pre.get("exp_corners")},
-            "current": {"actual": cur_corners_total, "minute": minute, "exp_remaining": round(corner_rem, 1)},
+            "available": bool(has_corner),
+            "reason": None if has_corner else "API không có dữ liệu phạt góc — hệ thống không phân tích cho trận này.",
+            "pre_match": ({
+                "side": corner_side_pre, "line": corner_line_pre,
+                "prob": corner_pre.get("prob") if corner_pre else None,
+                "exp_final": corner_pre.get("exp_corners") if corner_pre else None,
+            } if corner_pre else None),
+            "current": ({
+                "actual": cur_corners_total, "minute": minute,
+                "exp_remaining": round(corner_rem, 1),
+            } if has_corner else None),
             "status": corner_status,
-            "live_pick": market["corner"],  # tính lại với data hiện tại
+            "live_pick": market["corner"],  # None khi không có data
         },
         "ah": {
             "pre_match": {"side": ah_side, "line": ah_line, "cover": ah_pre.get("cover")},
@@ -1231,8 +1253,14 @@ async def _msess_start(request: Request):
         ah_real = engine.asian_handicap_at_line(M_pre, real_ah_line)
         ah_real["team"] = "Đội nhà" if ah_real["side"] == "home" else "Đội khách"
         bets_pre["ah_pick"] = ah_real
-    corner_pre = engine.corner_pick(lh + la, 0, 0, line=engine.consensus_line(
-        thethaoviet_client.get_corner_odds(fid), "line") if hasattr(thethaoviet_client, "get_corner_odds") else None)
+    # CORNER: chỉ tạo pick khi API có data thật (summary corners có key hoặc có corner odds)
+    corner_odds_msess = thethaoviet_client.get_corner_odds(fid) if hasattr(thethaoviet_client, "get_corner_odds") else []
+    has_corner_msess = bool(m.get("has_corner_data")) or bool(corner_odds_msess)
+    if has_corner_msess:
+        corner_pre = engine.corner_pick(lh + la, 0, 0,
+                                         line=engine.consensus_line(corner_odds_msess, "line"))
+    else:
+        corner_pre = None
 
     # Odd average từ bookmakers (nếu có)
     def avg_odd(rows, key1, key2):
@@ -1244,25 +1272,25 @@ async def _msess_start(request: Request):
                      "home" if bets_pre["ah_pick"]["side"] == "home" else "away", None)
     corner_odd = 1.9  # API thường không có corner odds → default
 
-    picks = [
-        {
+    picks = []
+    if corner_pre:
+        picks.append({
             "type": "corner", "label": "Kèo phạt góc T/X",
             "side": corner_pre["pick"], "line": corner_pre["line"],
             "prob": corner_pre["prob"], "odd": corner_odd,
-        },
-        {
-            "type": "ah", "label": "Cược chấp",
-            "side": bets_pre["ah_pick"]["side"], "line": bets_pre["ah_pick"]["line"],
-            "team": bets_pre["ah_pick"].get("team", ""),
-            "prob": bets_pre["ah_pick"].get("cover") or 0,
-            "odd": ah_odd,
-        },
-        {
-            "type": "ou", "label": "Tài/Xỉu bàn thắng",
-            "side": bets_pre["ou_pick"]["side"], "line": bets_pre["ou_pick"]["line"],
-            "prob": bets_pre["ou_pick"]["prob"], "odd": ou_odd,
-        },
-    ]
+        })
+    picks.append({
+        "type": "ah", "label": "Cược chấp",
+        "side": bets_pre["ah_pick"]["side"], "line": bets_pre["ah_pick"]["line"],
+        "team": bets_pre["ah_pick"].get("team", ""),
+        "prob": bets_pre["ah_pick"].get("cover") or 0,
+        "odd": ah_odd,
+    })
+    picks.append({
+        "type": "ou", "label": "Tài/Xỉu bàn thắng",
+        "side": bets_pre["ou_pick"]["side"], "line": bets_pre["ou_pick"]["line"],
+        "prob": bets_pre["ou_pick"]["prob"], "odd": ou_odd,
+    })
 
     sid = users_db.msess_create(
         user["id"], fid, capital, picks,

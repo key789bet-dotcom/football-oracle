@@ -133,6 +133,11 @@ def _norm_item(fx: dict, summary: dict | None = None) -> dict | None:
         fx = fx["fixture"]
     h, a = fx.get("home_team", {}), fx.get("away_team", {})
     summ = summary or fx.get("summary", {}) or {}
+    # ⭐ Phân biệt key MISSING vs key có nhưng = 0
+    # has_corner_data = True nếu summary CÓ key homeCorners/awayCorners (kể cả =0)
+    has_corner_data = "homeCorners" in summ or "awayCorners" in summ
+    has_card_data = ("homeYellow" in summ or "awayYellow" in summ or
+                     "homeRed" in summ or "awayRed" in summ)
     return {
         "fixture_id": fx.get("id"),
         "league": (fx.get("league") or {}).get("name", ""),
@@ -148,6 +153,8 @@ def _norm_item(fx: dict, summary: dict | None = None) -> dict | None:
         "corners": {"home": summ.get("homeCorners", 0), "away": summ.get("awayCorners", 0)},
         "cards": {"home_yellow": summ.get("homeYellow", 0), "home_red": summ.get("homeRed", 0),
                   "away_yellow": summ.get("awayYellow", 0), "away_red": summ.get("awayRed", 0)},
+        "has_corner_data": has_corner_data,
+        "has_card_data": has_card_data,
     }
 
 
@@ -307,13 +314,14 @@ def get_detail(fixture_id: int) -> dict | None:
     ch = (m.get("corners") or {}).get("home", 0)
     ca = (m.get("corners") or {}).get("away", 0)
     minute = m.get("minute", 0)
-    # Chỉ override nếu trận đã đá (minute>5) và current = 0-0 (thường trống data)
-    if minute and minute > 5 and ch == 0 and ca == 0:
+    # Chỉ override nếu trận đã đá (minute>5) và current = 0-0 + không có flag → thử fallback
+    if minute and minute > 5 and ch == 0 and ca == 0 and not m.get("has_corner_data"):
         try:
             stats = get_stats_raw(fixture_id)
             if stats.get("corners"):
                 m["corners"] = stats["corners"]
                 m["_corner_source"] = stats.get("found_path", "fallback")
+                m["has_corner_data"] = True   # fallback tìm được → có data
         except Exception as e:
             print(f"[thethaoviet] stats fallback err: {e}")
     return m

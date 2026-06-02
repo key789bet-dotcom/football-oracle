@@ -655,13 +655,21 @@ function renderPicksTracking(d){
   };
 
   const c = pt.corner, ah = pt.ah, ou = pt.ou;
-  const cornerCard = card(
-    `🚩 KÈO GÓC T/X ${c.pre_match.line}`,
-    `${c.pre_match.side} (model ${(c.pre_match.prob*100).toFixed(0)}%)`,
-    `${c.current.actual} góc · phút ${c.current.minute}'`,
-    `T/X ${c.live_pick.line} → ${c.live_pick.pick} (kỳ vọng ${c.live_pick.exp_corners})`,
-    c.status,
-  );
+  // ⭐ Card góc: nếu API KHÔNG có data → render warning card riêng, KHÔNG phân tích
+  const cornerCard = (c.available === false || !c.pre_match) ?
+    `<div class="cell" style="padding:14px;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;border:1px dashed rgba(255,176,0,.35);background:rgba(255,176,0,.04)">
+      <div style="font-size:11px;color:var(--warn);letter-spacing:1.5px;font-weight:700">🚩 KÈO GÓC T/X</div>
+      <div style="font-size:24px">⚠️</div>
+      <div style="text-align:center;color:var(--warn);font-size:11.5px;font-weight:700;line-height:1.4">KHÔNG CÓ DỮ LIỆU</div>
+      <div style="text-align:center;color:var(--txt-dim);font-size:10px;line-height:1.5;padding:0 4px">${c.reason || 'API không có data góc cho trận này. Hệ thống không đoán mò.'}</div>
+    </div>`
+    : card(
+      `🚩 KÈO GÓC T/X ${c.pre_match.line}`,
+      `${c.pre_match.side} (model ${(c.pre_match.prob*100).toFixed(0)}%)`,
+      `${c.current.actual} góc · phút ${c.current.minute}'`,
+      c.live_pick ? `T/X ${c.live_pick.line} → ${c.live_pick.pick} (kỳ vọng ${c.live_pick.exp_corners})` : '—',
+      c.status,
+    );
   const ahSideLabel = ah.pre_match.side === 'NHÀ' ? 'NHÀ' : 'KHÁCH';
   const liveAH = pt.ah.live_pick;
   const liveAHSide = liveAH.team || (liveAH.side === 'home' ? 'NHÀ' : 'KHÁCH');
@@ -759,8 +767,10 @@ async function tvRender(){
         <div class="teams" style="font-size:16px">${d.away.name}</div>
       </div><div class="score" style="font-size:24px">${d.score.home??0} : ${d.score.away??0}</div></div>
       <div class="grid2" style="margin:6px 0">
-        <div class="cell"><div class="k">PHẠT GÓC ${(d._corner_source==='user-override')?'<span style="color:var(--warn);font-size:9px">✏️ thủ công</span>':''}</div>
-          <div class="v">${(d.total_corners>0)?(d.corners.home+'-'+d.corners.away+' (tổng '+d.total_corners+')'):'<span style="color:var(--dim);font-size:11px">⚠ API không có dữ liệu</span>'}
+        <div class="cell"><div class="k">PHẠT GÓC ${(d._corner_source==='user-override')?'<span style="color:var(--warn);font-size:9px">✏️ thủ công</span>':(d.picks_tracking&&d.picks_tracking.corner&&d.picks_tracking.corner.available===false?'<span style="color:var(--bad);font-size:9px">✕ NO DATA</span>':'')}</div>
+          <div class="v">${(d.picks_tracking&&d.picks_tracking.corner&&d.picks_tracking.corner.available===false)
+            ? '<span style="color:var(--warn);font-size:11px">⚠ Không có data — không phân tích</span>'
+            : ((d.total_corners>0)?(d.corners.home+'-'+d.corners.away+' (tổng '+d.total_corners+')'):'<span style="color:var(--dim);font-size:11px">0-0</span>')}
             <button onclick="setCornerOverride('${tvId}')" style="background:rgba(255,176,0,.1);border:1px solid rgba(255,176,0,.4);color:var(--warn);font-size:10px;padding:2px 7px;border-radius:4px;cursor:pointer;margin-left:6px;font-family:inherit">✏️ Nhập tay</button>
           </div>
         </div>
@@ -1205,7 +1215,13 @@ function mainPicks(mk, fid){
     </div>`;
   return `<div class="vh" style="color:var(--warn);margin:6px 0">▌ 3 KÈO CHÍNH</div>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
-      ${co?card("KÈO GÓC (T/X "+co.line+")",co.pick,"~"+co.exp_corners+" góc",co.prob,saveBtn('corner',co.pick.toLowerCase(),co.line,co.prob)):card("KÈO GÓC","—","","","")}
+      ${co?card("KÈO GÓC (T/X "+co.line+")",co.pick,"~"+co.exp_corners+" góc",co.prob,saveBtn('corner',co.pick.toLowerCase(),co.line,co.prob)):
+        `<div class="cell" style="text-align:center;padding:12px;border:1px dashed rgba(255,176,0,.35);background:rgba(255,176,0,.04)">
+          <div class="k" style="color:var(--warn)">KÈO GÓC</div>
+          <div style="font-size:20px;margin:6px 0">⚠️</div>
+          <div style="font-size:10.5px;color:var(--warn);font-weight:700">KHÔNG CÓ DỮ LIỆU</div>
+          <div style="font-size:9px;color:var(--txt-dim);margin-top:4px;line-height:1.4">API không cung cấp data góc — hệ thống không phân tích</div>
+        </div>`}
       ${card("CƯỢC CHẤP",ah.side==="home"?"NHÀ":(ah.side==="away"?"KHÁCH":"—"),"chấp "+(ah.line>=0?'+':'')+ah.line,ah.cover,saveBtn('hdp',ah.side,ah.line,ah.cover))}
       ${card("TÀI/XỈU "+ou.line,ou.side,"bàn thắng",ou.prob,saveBtn('ou',ou.side.toLowerCase(),ou.line,ou.prob))}
     </div>`;
