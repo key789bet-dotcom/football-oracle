@@ -90,6 +90,11 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN points INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # column đã tồn tại
+        # Migration: bankroll (vốn ban đầu để Kelly + ROI %)
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN bankroll REAL NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
 
 
 def _hash_password(password: str, salt: str = None):
@@ -523,6 +528,156 @@ def delete_bet(bet_id: int, user_id: int):
     return True
 
 
+def get_bankroll(user_id: int) -> float:
+    with _conn() as c:
+        r = c.execute("SELECT bankroll FROM users WHERE id=?", (user_id,)).fetchone()
+    return float(r[0]) if r else 0.0
+
+
+def set_bankroll(user_id: int, value: float):
+    value = max(0.0, float(value))
+    with _conn() as c:
+        c.execute("UPDATE users SET bankroll=? WHERE id=?", (value, user_id))
+    return True, f"Đã set bankroll {value:,.0f}"
+
+
+def kelly_stake(bankroll: float, prob: float, odd: float, fraction: float = 0.25):
+    """Kelly criterion stake suggestion.
+    f* = (b*p - q) / b  với b = odd-1, p = win prob, q = 1-p.
+    Dùng fractional Kelly (default 1/4) để giảm rủi ro."""
+    if bankroll <= 0 or prob <= 0 or prob >= 1 or odd <= 1:
+        return 0
+    b = odd - 1
+    p = prob
+    q = 1 - p
+    f = (b * p - q) / b
+    if f <= 0:
+        return 0
+    stake = bankroll * f * fraction
+    return max(0, round(stake, 2))
+
+
+def bets_timeline(user_id: int, limit: int = 200):
+    """Trả về timeline lãi/lỗ tích lũy theo ngày — cho profit chart."""
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT settled_at, profit FROM user_bets
+               WHERE user_id=? AND status!='pending' AND settled_at IS NOT NULL
+               ORDER BY settled_at ASC LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    points = []
+    cum = 0.0
+    for ts, profit in rows:
+        cum += float(profit or 0)
+        points.append({
+            "ts": ts,
+            "date": time.strftime("%d/%m", time.localtime(ts)),
+            "profit": round(float(profit or 0), 2),
+            "cumulative": round(cum, 2),
+        })
+    return points
+
+
+def evaluate_bet(bet: dict, home_score: int, away_score: int) -> str:
+    """Cho 1 bet + kết quả thực, trả về status: won/lost/push/half_won/half_lost."""
+    bt = bet["bet_type"]; pick = bet["pick"]; line = bet.get("line")
+    diff = (home_score or 0) - (away_score or 0)
+    total = (home_score or 0) + (away_score or 0)
+
+    if bt == "1x2":
+        actual = "home" if diff > 0 else ("away" if diff < 0 else "draw")
+        return "won" if pick == actual else "lost"
+
+    if bt == "hdp":
+        # Asian Handicap: line là handicap cho home (vd -1.5 = home phải thắng ≥2 bàn)
+        # Pick = home/away
+        if line is None: return "push"
+        adj = diff + float(line) if pick == "away" else diff + float(line)
+        # Adj cho pick home: home_diff + line; pick away: away_diff + line (=-diff+(-line))
+        if pick == "home":
+            adj = diff + float(line)
+        else:  # away
+            adj = -diff - float(line)
+        # Quarter line: split half (vd 0.25 means -0/-0.5)
+        f = float(line); frac = abs(f - int(f))
+        if frac in (0.25, 0.75):
+            # Half won/lost — simplified
+            if adj > 0.25: return "won"
+            if adj < -0.25: return "lost"
+            if abs(adj) <= 0.25: return "half_won" if adj > 0 else "half_lost"
+        if adj > 0: return "won"
+        if adj < 0: return "lost"
+        return "push"
+
+    if bt == "ou":
+        if line is None: return "push"
+        adj = total - float(line) if pick == "over" else float(line) - total
+        f = float(line); frac = abs(f - int(f))
+        if frac in (0.25, 0.75):
+            if adj > 0.25: return "won"
+            if adj < -0.25: return "lost"
+            if abs(adj) <= 0.25: return "half_won" if adj > 0 else "half_lost"
+        if adj > 0: return "won"
+        if adj < 0: return "lost"
+        return "push"
+
+    if bt == "btts":
+        both_scored = (home_score > 0) and (away_score > 0)
+        actual = "yes" if both_scored else "no"
+        return "won" if pick == actual else "lost"
+
+    return "push"  # corner, unknown — không tự settle
+
+
+def auto_settle_bets(results_by_fixture: dict):
+    """Cho 1 dict {fixture_id: (home_score, away_score, finished)}, tự settle các pending bet.
+    Trả về list bet đã update."""
+    updated = []
+    fids = [int(k) for k in results_by_fixture.keys()]
+    if not fids:
+        return updated
+    placeholders = ",".join("?" * len(fids))
+    with _conn() as c:
+        rows = c.execute(
+            f"SELECT id,user_id,fixture_id,home_team,away_team,league,bet_type,pick,line,stake,odd,status,profit,note,placed_at,settled_at FROM user_bets WHERE status='pending' AND fixture_id IN ({placeholders})",
+            fids,
+        ).fetchall()
+    for r in rows:
+        bet = _bet_row_to_dict(r)
+        fid = bet["fixture_id"]
+        result = results_by_fixture.get(fid) or results_by_fixture.get(str(fid))
+        if not result:
+            continue
+        home_score, away_score, finished = result
+        if not finished:
+            continue
+        new_status = evaluate_bet(bet, home_score, away_score)
+        settle_bet(bet["id"], bet["user_id"], new_status)
+        updated.append({"bet_id": bet["id"], "status": new_status, "score": f"{home_score}-{away_score}"})
+    return updated
+
+
+def bets_export_csv(user_id: int):
+    """Xuất sổ cược ra CSV string."""
+    import csv as _csv
+    import io as _io
+    bets = list_bets(user_id, limit=10000)
+    out = _io.StringIO()
+    w = _csv.writer(out)
+    w.writerow(["ID","Ngày đặt","Trận","Giải","Loại kèo","Pick","Line","Stake","Odd","Status","Profit","Ngày settle","Ghi chú"])
+    for b in bets:
+        placed = time.strftime("%Y-%m-%d %H:%M", time.localtime(b["placed_at"])) if b["placed_at"] else ""
+        settled = time.strftime("%Y-%m-%d %H:%M", time.localtime(b["settled_at"])) if b["settled_at"] else ""
+        w.writerow([
+            b["id"], placed,
+            f"{b['home_team']} vs {b['away_team']}",
+            b["league"], b["bet_type"], b["pick"], b["line"] if b["line"] is not None else "",
+            b["stake"], b["odd"], b["status"], b["profit"], settled, b["note"]
+        ])
+    return out.getvalue()
+
+
 def bets_stats(user_id: int):
     """Tính ROI, win rate, lãi/lỗ tổng + theo league + theo bet_type."""
     with _conn() as c:
@@ -583,6 +738,10 @@ def bets_stats(user_id: int):
         d["win_rate"] = (d["won"] / d["total"]) if d["total"] > 0 else 0
         d["roi"] = (d["profit"] / d["stake"]) if d["stake"] > 0 else 0
 
+    # Bankroll info
+    initial_bankroll = get_bankroll(user_id)
+    current_bankroll = initial_bankroll + total_profit
+    bankroll_change_pct = (total_profit / initial_bankroll) if initial_bankroll > 0 else 0
     return {
         "total": total, "pending": pending, "settled": settled,
         "won": won, "lost": lost, "push": push,
@@ -590,6 +749,9 @@ def bets_stats(user_id: int):
         "total_stake": round(total_stake, 2),
         "total_profit": round(total_profit, 2),
         "roi": round(roi, 4),
+        "initial_bankroll": round(initial_bankroll, 2),
+        "current_bankroll": round(current_bankroll, 2),
+        "bankroll_change_pct": round(bankroll_change_pct, 4),
         "by_league": by_league,
         "by_type": by_type,
     }

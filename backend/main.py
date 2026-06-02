@@ -904,6 +904,80 @@ def _bets_delete(request: Request, bet_id: int):
     return {"ok": True, "msg": "Đã xóa cược"}
 
 
+@app.get("/api/bets/timeline")
+def _bets_timeline(request: Request):
+    """Profit chart data — lãi/lỗ tích lũy theo settled date."""
+    user = request.state.user
+    return {"points": users_db.bets_timeline(user["id"])}
+
+
+@app.get("/api/bets/export")
+def _bets_export(request: Request):
+    """Export CSV sổ cược."""
+    from fastapi.responses import Response
+    user = request.state.user
+    csv = users_db.bets_export_csv(user["id"])
+    filename = f"bets_{user['username']}_{int(time.time())}.csv"
+    return Response(
+        content="﻿" + csv,  # BOM cho Excel mở UTF-8 đúng
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/bets/bankroll")
+def _bets_bankroll(request: Request, value: float = Form(...)):
+    """Set bankroll (vốn ban đầu)."""
+    user = request.state.user
+    ok, msg = users_db.set_bankroll(user["id"], value)
+    return {"ok": ok, "msg": msg, "bankroll": users_db.get_bankroll(user["id"])}
+
+
+@app.get("/api/bets/kelly")
+def _bets_kelly(request: Request, prob: float, odd: float, fraction: float = 0.25):
+    """Kelly stake suggestion dựa trên bankroll user."""
+    user = request.state.user
+    br = users_db.get_bankroll(user["id"])
+    stake = users_db.kelly_stake(br, prob, odd, fraction)
+    return {"bankroll": br, "prob": prob, "odd": odd, "fraction": fraction, "stake": stake}
+
+
+@app.post("/api/bets/auto_settle")
+async def _bets_auto_settle(request: Request):
+    """Auto-settle các pending bet có fixture_id — gọi API kết quả thật.
+    Body: {fixture_ids: [123, 456]} hoặc rỗng (tự quét tất cả pending)."""
+    user = request.state.user
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    fixture_ids = body.get("fixture_ids") or []
+    # Nếu không có fixture_ids, lấy từ pending bets của user
+    if not fixture_ids:
+        pending = users_db.list_bets(user["id"], status="pending")
+        fixture_ids = list(set(b["fixture_id"] for b in pending if b.get("fixture_id")))
+    if not fixture_ids:
+        return {"ok": True, "updated": [], "msg": "Không có cược nào cần settle"}
+
+    # Lấy kết quả từ thethaoviet_client
+    results = {}
+    for fid in fixture_ids[:30]:  # limit 30 fixtures/lần
+        try:
+            m = thethaoviet_client.get_detail(int(fid))
+            if not m: continue
+            status = (m.get("status") or "").upper()
+            finished = status in ("FT", "AET", "PEN")
+            home = m.get("goals", {}).get("home")
+            away = m.get("goals", {}).get("away")
+            if finished and home is not None and away is not None:
+                results[int(fid)] = (int(home), int(away), True)
+        except Exception:
+            continue
+
+    updated = users_db.auto_settle_bets(results)
+    return {"ok": True, "updated": updated, "checked": len(fixture_ids), "msg": f"Đã settle {len(updated)} cược"}
+
+
 # ============ FRONTEND STATIC (đặt CUỐI cùng) ============
 # Phục vụ frontend tĩnh — index.html ở "/", các file khác theo path
 if os.path.isdir(_frontend_dir):

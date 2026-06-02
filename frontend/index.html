@@ -886,22 +886,49 @@ function heat(grid){
   return h+'</div>';
 }
 
-function mainPicks(mk){
+function mainPicks(mk, fid){
   if(!mk||!mk.ah_pick) return "";
   const ah=mk.ah_pick, ou=mk.ou_pick, co=mk.corner;
-  const card=(label,pick,detail,prob)=>`
+  // Quick-add button: betType/pick/line/odd_suggestion
+  const saveBtn=(bt,pk,ln,prob)=>{
+    const odd = prob>0 ? (1/prob).toFixed(2) : '1.95';
+    return `<button onclick="quickAddFromReport(${fid},'${bt}','${pk}',${ln===null||ln===undefined?'null':ln},${odd})"
+      title="Lưu cược này vào sổ" style="font-family:inherit;background:rgba(0,255,156,.12);color:var(--neon);border:1px solid rgba(0,255,156,.4);padding:4px 10px;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;margin-top:6px;letter-spacing:1px">💾 LƯU CƯỢC</button>`;
+  };
+  const card=(label,pick,detail,prob,saveBtn)=>`
     <div class="cell hot" style="text-align:center;padding:12px">
       <div class="k">${label}</div>
       <div class="v flash" style="font-size:18px">${pick}</div>
       <div style="font-size:10px;color:var(--dim)">${detail}</div>
       <div style="font-size:11px;color:var(--neon2)">${prob!=null?(prob*100).toFixed(0)+'%':''}</div>
+      ${saveBtn||''}
     </div>`;
   return `<div class="vh" style="color:var(--warn);margin:6px 0">▌ 3 KÈO CHÍNH</div>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
-      ${co?card("KÈO GÓC (T/X "+co.line+")",co.pick,"~"+co.exp_corners+" góc",co.prob):card("KÈO GÓC","—","","")}
-      ${card("CƯỢC CHẤP",ah.side==="home"?"NHÀ":(ah.side==="away"?"KHÁCH":"—"),"chấp "+(ah.line>=0?'+':'')+ah.line,ah.cover)}
-      ${card("TÀI/XỈU "+ou.line,ou.side,"bàn thắng",ou.prob)}
+      ${co?card("KÈO GÓC (T/X "+co.line+")",co.pick,"~"+co.exp_corners+" góc",co.prob,saveBtn('corner',co.pick.toLowerCase(),co.line,co.prob)):card("KÈO GÓC","—","","","")}
+      ${card("CƯỢC CHẤP",ah.side==="home"?"NHÀ":(ah.side==="away"?"KHÁCH":"—"),"chấp "+(ah.line>=0?'+':'')+ah.line,ah.cover,saveBtn('hdp',ah.side,ah.line,ah.cover))}
+      ${card("TÀI/XỈU "+ou.line,ou.side,"bàn thắng",ou.prob,saveBtn('ou',ou.side.toLowerCase(),ou.line,ou.prob))}
     </div>`;
+}
+
+// Helper: lấy home/away/league từ DOM match card, gọi quickAddBet
+function quickAddFromReport(fid, betType, pick, line, suggestedOdd){
+  const card = document.getElementById('m-'+fid) || document.getElementById('tvpanel');
+  let home = '', away = '', league = '';
+  if(card){
+    const teams = card.querySelectorAll('.teams');
+    home = teams[0]?.textContent.trim() || '';
+    away = teams[1]?.textContent.trim() || '';
+    const lg = card.querySelector('.league');
+    if(lg) league = lg.textContent.split('·')[0].trim();
+  }
+  // Fallback nếu tab LIVE (cấu trúc khác)
+  if(!home){
+    home = prompt('Tên đội nhà:','') || '';
+    away = prompt('Tên đội khách:','') || '';
+  }
+  if(!home || !away){ alert('Thiếu tên đội — hủy'); return; }
+  quickAddBet(fid, home, away, league, betType, pick, line, suggestedOdd);
 }
 
 function renderReport(panel,d){
@@ -910,7 +937,7 @@ function renderReport(panel,d){
   const src=d.sources;
   const wrap=document.createElement("div");wrap.className="report";
   wrap.innerHTML=`
-   ${mainPicks(mk)}
+   ${mainPicks(mk, d.fixture_id)}
    <div class="flex">
      <div class="col" style="flex:0 0 auto">
        <div class="donutbox ${d.confidence>=0.45?'win':''}"><canvas id="${id}"></canvas>
@@ -1037,13 +1064,46 @@ async function loadBets(){
   const v=document.getElementById("view");
   v.innerHTML='<div class="empty">[ 📒 ] tải sổ cược...</div>';
   try{
-    const [statsRes, listRes] = await Promise.all([
+    const [statsRes, listRes, timelineRes] = await Promise.all([
       fetch(`${API}/api/bets/stats`).then(r=>r.json()),
       fetch(`${API}/api/bets/list`).then(r=>r.json()),
+      fetch(`${API}/api/bets/timeline`).then(r=>r.json()),
     ]);
-    const s = statsRes; const bets = listRes.items || [];
+    const s = statsRes; const bets = listRes.items || []; const points = timelineRes.points || [];
     const profitColor = s.total_profit >= 0 ? 'var(--neon)' : 'var(--bad)';
     const roiColor = s.roi >= 0 ? 'var(--neon)' : 'var(--bad)';
+    const brColor = s.current_bankroll >= s.initial_bankroll ? 'var(--neon)' : 'var(--bad)';
+
+    // ===== Bankroll bar =====
+    const bankroll = `
+      <div class="match" style="margin-bottom:14px;background:linear-gradient(135deg,rgba(0,255,156,.08),rgba(0,224,255,.04));border-color:rgba(0,255,156,.3)">
+        <div class="vh" style="color:var(--neon2)">▌ 💰 BANKROLL MANAGEMENT</div>
+        <div class="grid2" style="grid-template-columns:1.5fr 1fr 1fr;gap:14px;margin-top:10px">
+          <div>
+            <div style="font-size:10px;color:var(--dim);letter-spacing:1.5px">VỐN BAN ĐẦU</div>
+            <div style="display:flex;gap:6px;margin-top:4px">
+              <input id="brInput" type="number" step="any" value="${s.initial_bankroll}" placeholder="vd 10,000,000" style="flex:1;font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px 11px;border-radius:5px;font-size:13.5px;font-weight:700"/>
+              <button onclick="setBankroll()" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px 14px;border-radius:5px;font-size:12px;font-weight:700;cursor:pointer">SET</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--dim);letter-spacing:1.5px">VỐN HIỆN TẠI</div>
+            <div style="font-size:22px;font-weight:800;color:${brColor};margin-top:4px">${s.current_bankroll.toLocaleString('vi-VN')}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--dim);letter-spacing:1.5px">THAY ĐỔI</div>
+            <div style="font-size:22px;font-weight:800;color:${brColor};margin-top:4px">${s.bankroll_change_pct >= 0?'+':''}${(s.bankroll_change_pct*100).toFixed(1)}%</div>
+          </div>
+        </div>
+        <div class="src" style="margin-top:6px">💡 Kelly Criterion sẽ gợi ý stake tối ưu dựa trên vốn này khi bạn lưu cược từ phân tích AI.</div>
+      </div>`;
+
+    // ===== Profit chart =====
+    const chart = points.length ? `
+      <div class="match" style="margin-bottom:14px">
+        <div class="vh">▌ 📈 LÃI/LỖ TÍCH LŨY (${points.length} cược)</div>
+        <div style="max-width:100%;height:240px;margin-top:10px"><canvas id="profitChart"></canvas></div>
+      </div>` : '';
 
     const stats = `
       <div class="bigstat">
@@ -1083,11 +1143,14 @@ async function loadBets(){
       </div>`;
 
     const filter = `
-      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
         <button class="${!betFilter?'active':''}" onclick="filterBets('')">Tất cả (${s.total})</button>
         <button class="${betFilter==='pending'?'active':''}" onclick="filterBets('pending')">⏳ Chờ (${s.pending})</button>
         <button class="${betFilter==='won'?'active':''}" onclick="filterBets('won')">✓ Thắng (${s.won})</button>
         <button class="${betFilter==='lost'?'active':''}" onclick="filterBets('lost')">✗ Thua (${s.lost})</button>
+        <div style="flex:1"></div>
+        <button onclick="autoSettleBets()" title="Tự động đối chiếu với kết quả thật" style="background:linear-gradient(135deg,#9b59b6,#6a35a3);color:#fff">🤖 AUTO-SETTLE</button>
+        <button onclick="exportBets()" title="Tải CSV mở bằng Excel">📥 EXPORT CSV</button>
       </div>`;
 
     const filtered = betFilter ? bets.filter(b=>b.status===betFilter||(betFilter==='won'&&b.status==='half_won')||(betFilter==='lost'&&b.status==='half_lost')) : bets;
@@ -1150,7 +1213,36 @@ async function loadBets(){
         </table>
       </div>` : '';
 
-    v.innerHTML = stats + form + table + byLeague;
+    v.innerHTML = bankroll + stats + chart + form + table + byLeague;
+
+    // Render chart sau khi DOM ready
+    if(points.length && window.Chart){
+      const ctx = document.getElementById('profitChart');
+      if(ctx){
+        new Chart(ctx, {
+          type:'line',
+          data:{
+            labels: points.map(p=>p.date),
+            datasets:[{
+              label:'Lãi/Lỗ tích lũy',
+              data: points.map(p=>p.cumulative),
+              borderColor:'#00ff9c',
+              backgroundColor:'rgba(0,255,156,.12)',
+              fill:true, tension:0.25, pointRadius:3, pointHoverRadius:5,
+              borderWidth:2,
+            }]
+          },
+          options:{
+            responsive:true, maintainAspectRatio:false,
+            scales:{
+              x:{ticks:{color:'#3f6b5a'},grid:{color:'rgba(0,255,156,.06)'}},
+              y:{ticks:{color:'#3f6b5a',callback:v=>v.toLocaleString('vi-VN')},grid:{color:'rgba(0,255,156,.06)'}},
+            },
+            plugins:{legend:{labels:{color:'#b8ffe0'}}},
+          },
+        });
+      }
+    }
   }catch(e){
     v.innerHTML='<div class="empty err">! '+e+'</div>';
   }
@@ -1198,6 +1290,51 @@ async function deleteBet(id){
   if(!confirm('Xóa cược này?')) return;
   await fetch(API+`/api/bets/${id}/delete`,{method:'POST'});
   loadBets();
+}
+
+async function setBankroll(){
+  const v = document.getElementById('brInput').value;
+  if(!v || isNaN(parseFloat(v))){ alert('Nhập số hợp lệ'); return; }
+  const fd = new FormData(); fd.append('value', v);
+  const r = await fetch(API+'/api/bets/bankroll',{method:'POST',body:fd});
+  const j = await r.json();
+  if(j.ok){ alert('✓ '+j.msg); loadBets(); }
+  else alert('✗ '+(j.msg||'Lỗi'));
+}
+
+function exportBets(){
+  // Mở URL → browser tự download CSV
+  window.location.href = API+'/api/bets/export';
+}
+
+async function autoSettleBets(){
+  if(!confirm('Auto-settle các cược pending có Fixture ID? Sẽ đối chiếu với kết quả thật từ API.')) return;
+  const r = await fetch(API+'/api/bets/auto_settle',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const j = await r.json();
+  alert((j.ok?'✓ ':'✗ ')+ j.msg + ` (kiểm tra ${j.checked||0} fixtures, settle ${(j.updated||[]).length} cược)`);
+  loadBets();
+}
+
+// ===== Quick add từ AI prediction =====
+async function quickAddBet(fixtureId, home, away, league, betType, pick, line, suggestedOdd){
+  // Pre-fill form bằng prompt nhanh
+  const odd = prompt(`Lưu cược ${home} vs ${away}\n${betType.toUpperCase()} - ${pick}${line!==null?' '+line:''}\n\nOdd thực tế (decimal):`, suggestedOdd||'1.95');
+  if(!odd || isNaN(parseFloat(odd)) || parseFloat(odd) <= 1) return;
+  const stake = prompt(`Stake (số tiền đặt):`, '100');
+  if(!stake || isNaN(parseFloat(stake)) || parseFloat(stake) <= 0) return;
+  const data = {
+    fixture_id: fixtureId, home_team: home, away_team: away, league,
+    bet_type: betType, pick: pick, line: line,
+    stake: parseFloat(stake), odd: parseFloat(odd),
+    note: 'Lưu từ phân tích AI',
+  };
+  const r = await fetch(API+'/api/bets/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  const j = await r.json();
+  if(j.ok){
+    alert('✓ Đã lưu vào sổ cược! Vào tab "📒 SỔ CƯỢC" để xem.');
+  }else{
+    alert('✗ '+(j.msg||'Lỗi'));
+  }
 }
 
 // Load current user info: username + role + points
