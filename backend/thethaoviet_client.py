@@ -43,6 +43,45 @@ def get_detail_raw(fixture_id: int) -> dict:
     return _get(f"/fixtures/{fixture_id}/detail")
 
 
+def get_corner_odds(fixture_id: int) -> list[dict]:
+    """Probe các bet_id phổ biến cho PHẠT GÓC TÀI/XỈU và trả bảng:
+    [{book, line, over, under}, ...]. Rỗng nếu API không có corner odds cho fixture đó.
+    bet_id thường dùng: 45 (API-Football corners), 14, 13, 8 — thử tuần tự."""
+    now = time.time()
+    ck = f"_corner:{fixture_id}"
+    if ck in _cache and now - _cache[ck][0] < CACHE_TTL:
+        return _cache[ck][1]
+    out_raw = []
+    with httpx.Client(timeout=10, headers=_HEADERS) as c:
+        for bid in [45, 14, 13, 8, 60, 81, 82, 83]:
+            try:
+                r = c.get(f"{ODDS_BASE}/prematch", params={"fixture": fixture_id, "bet": bid})
+                if r.status_code != 200: continue
+                d = r.json().get("data", []) or []
+                if not d: continue
+                sample = d[0]
+                vn = (sample.get("value_name") or "").lower()
+                if vn in ("over", "under", "tài", "xỉu", "tai", "xiu") and sample.get("handicap") is not None:
+                    out_raw = d
+                    break
+            except Exception:
+                continue
+    # parse → bảng book/line/over/under
+    table = {}
+    for o in out_raw:
+        try:
+            b = o.get("bookmaker_name")
+            ln = o.get("handicap")
+            vn = (o.get("value_name") or "").lower()
+            key = vn if vn in ("over", "under") else ("over" if vn in ("tài", "tai") else "under")
+            table.setdefault((b, ln), {"book": b, "line": ln})[key] = float(o["odd_value"])
+        except (ValueError, TypeError, KeyError):
+            continue
+    result = [r for r in table.values() if "over" in r and "under" in r]
+    _cache[ck] = (now, result)
+    return result
+
+
 def _get_odds_full_raw(fixture_id: int, prefer: str = "auto") -> dict:
     """Lấy ĐẦY ĐỦ odds 1×2 + AH + O/U từ endpoint /api/odds/prematch & /live.
     Endpoint này có 10-15 bookmakers (đầy đủ hơn /detail).

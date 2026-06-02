@@ -468,8 +468,7 @@ def tv_live(request: Request, fixture_id: int):
               "over_under": bets["over_under"], "handicap": bets["handicap"],
               "fair_handicap": bets["fair_handicap"], "ou_pick": bets["ou_pick"],
               "ah_pick": bets["ah_pick"],
-              "corner": engine.corner_pick(lh_eff + la_eff,
-                        (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0), minute)}
+              "corner": None}  # set sau khi có real_corner_line
 
     # ========== PRE-MATCH PICKS + VERIFICATION ==========
     # Pick ban đầu (phút 0, 0-0) — model dự đoán trước trận
@@ -496,8 +495,21 @@ def tv_live(request: Request, fixture_id: int):
         bets["ah_pick"] = ah_real_live
         market["ah_pick"] = ah_real_live
 
-    # Corner: API thethaoviet không có corner odds → dùng heuristic engine.corner_pick
-    corner_pre = engine.corner_pick(lh + la, 0, 0)
+    # Corner: thử lấy corner odds thật từ API (bet_id 45/14/...); nếu không có → line động
+    real_corner_odds = []
+    try:
+        real_corner_odds = thethaoviet_client.get_corner_odds(fixture_id)
+    except Exception as _e:
+        real_corner_odds = []
+    real_corner_line = engine.consensus_line(real_corner_odds, "line")
+    # Pre-match: nếu API có corner line thật → dùng; không thì engine tự chọn line .5 gần exp_full
+    corner_pre = engine.corner_pick(lh + la, 0, 0, line=real_corner_line)
+    # LIVE corner pick — dùng số góc hiện tại + phút + giữ đúng line như pre-match (để verify đúng)
+    cur_corners_total_for_live = (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0)
+    market["corner"] = engine.corner_pick(
+        lh_eff + la_eff, cur_corners_total_for_live, minute,
+        line=real_corner_line if real_corner_line is not None else corner_pre["line"],
+    )
 
     # Trạng thái hiện tại
     cur_corners_total = (m["corners"]["home"] or 0) + (m["corners"]["away"] or 0)

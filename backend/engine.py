@@ -1,25 +1,17 @@
 """
 ENGINE phân tích chuyên sâu — fit sức mạnh đội bóng từ CẢ MÙA GIẢI rồi dự đoán.
-
-Ưu điểm so với cách cũ (chỉ lấy 10 trận gần nhất qua nhiều request API):
-  - Chỉ cần 1 request /competitions/{code}/matches (đã có cache) -> hết lo rate-limit.
-  - Tính chỉ số TẤN CÔNG / PHÒNG NGỰ riêng cho sân nhà & sân khách (chuẩn Dixon-Coles).
-  - Hiệu chỉnh Dixon-Coles cho các tỉ số thấp (0-0,1-0,0-1,1-1).
-  - Mô phỏng Monte Carlo + bảng xếp hạng + khung backtest.
-
 Toàn bộ bằng Python thuần (math/random), không cần thư viện ngoài.
 """
 from math import exp, factorial
 import random
 
 MAX_GOALS = 8
-RHO = -0.08          # hệ số hiệu chỉnh Dixon-Coles (tương quan tỉ số thấp)
-HOME_ADV = 1.0       # đã phản ánh qua league_home_avg/away_avg
+RHO = -0.08
+HOME_ADV = 1.0
 
 
 # ---------------- FIT RATINGS TỪ MÙA GIẢI ----------------
 def _finished(matches):
-    """Chấp nhận cả 2 định dạng: slim {home:{id},away:{id},goals} và {teams:{home:{id}}}."""
     out = []
     for m in matches:
         g = m.get("goals", {})
@@ -37,17 +29,13 @@ def _finished(matches):
 
 
 def fit_ratings(matches: list[dict]) -> dict:
-    """Trả {teams:{id:{att,def,name}}, lh, la} — sức mạnh tương đối, chuẩn hoá quanh 1.0."""
     games = _finished(matches)
     if not games:
         return {"teams": {}, "lh": 1.35, "la": 1.15, "n": 0}
-
     n = len(games)
-    lh = sum(g[2] for g in games) / n   # bàn trung bình đội nhà
-    la = sum(g[3] for g in games) / n   # bàn trung bình đội khách
+    lh = sum(g[2] for g in games) / n
+    la = sum(g[3] for g in games) / n
     lh = max(lh, 0.3); la = max(la, 0.3)
-
-    # gom theo đội: ghi/thủng ở sân nhà & sân khách
     agg = {}
     def slot(tid):
         return agg.setdefault(tid, {"sh": 0, "ch": 0, "nh": 0, "sa": 0, "ca": 0, "na": 0})
@@ -55,15 +43,12 @@ def fit_ratings(matches: list[dict]) -> dict:
         h, a = slot(hid), slot(aid)
         h["sh"] += gh; h["ch"] += ga; h["nh"] += 1
         a["sa"] += ga; a["ca"] += gh; a["na"] += 1
-
     teams = {}
     for tid, s in agg.items():
-        # tấn công: ghi bàn so với trung bình giải; phòng ngự: thủng so với trung bình
         att_h = (s["sh"] / s["nh"] / lh) if s["nh"] else 1.0
         att_a = (s["sa"] / s["na"] / la) if s["na"] else 1.0
-        def_h = (s["ch"] / s["nh"] / la) if s["nh"] else 1.0   # thủng ở nhà ~ so sức tấn công khách
+        def_h = (s["ch"] / s["nh"] / la) if s["nh"] else 1.0
         def_a = (s["ca"] / s["na"] / lh) if s["na"] else 1.0
-        # làm mượt về 1.0 khi ít trận
         w = min(1.0, (s["nh"] + s["na"]) / 6)
         att = 1 + w * (((att_h + att_a) / 2) - 1)
         dfn = 1 + w * (((def_h + def_a) / 2) - 1)
@@ -86,14 +71,10 @@ def _pmf(k, lam):
 
 
 def _dc_tau(i, j, lh, la, rho):
-    if i == 0 and j == 0:
-        return 1 - lh * la * rho
-    if i == 0 and j == 1:
-        return 1 + lh * rho
-    if i == 1 and j == 0:
-        return 1 + la * rho
-    if i == 1 and j == 1:
-        return 1 - rho
+    if i == 0 and j == 0: return 1 - lh * la * rho
+    if i == 0 and j == 1: return 1 + lh * rho
+    if i == 1 and j == 0: return 1 + la * rho
+    if i == 1 and j == 1: return 1 - rho
     return 1.0
 
 
@@ -127,7 +108,6 @@ def analyse_matrix(m: list[list[float]]) -> dict:
 
 # ---------------- KÈO TÀI/XỈU & CHẤP ----------------
 def over_under(m, lines=(0.5, 1.5, 2.5, 3.5)) -> dict:
-    """Xác suất Tài/Xỉu cho từng mức tổng bàn."""
     n = len(m)
     res = {}
     for L in lines:
@@ -137,37 +117,28 @@ def over_under(m, lines=(0.5, 1.5, 2.5, 3.5)) -> dict:
 
 
 def over_under_at_line(m, line: float) -> dict:
-    """Xác suất Tài/Xỉu cho 1 line CỤ THỂ (hỗ trợ line nguyên, nửa, quarter 0.25/0.75).
-    - Line nửa (2.5, 4.5): không push → over+under = 1.
-    - Line nguyên (3.0): có push (khi tổng = 3) → trả lại 50% cọc → cộng nửa push vào cả 2.
-    - Line quarter (3.25, 3.75): split = trung bình của 2 line nguyên+nửa kế cận."""
+    """Tài/Xỉu cho line bất kỳ (hỗ trợ nguyên/nửa/quarter)."""
     L = float(line)
     n = len(m)
-
     def at_one(L1):
         over = under = push = 0.0
         for i in range(n):
             for j in range(n):
-                total = i + j
-                if total > L1 + 1e-9: over += m[i][j]
-                elif total < L1 - 1e-9: under += m[i][j]
+                t = i + j
+                if t > L1 + 1e-9: over += m[i][j]
+                elif t < L1 - 1e-9: under += m[i][j]
                 else: push += m[i][j]
         return over, under, push
-
-    frac = abs(L - round(L * 2) / 2)   # nếu là 0.25 line
     is_quarter = abs(L - round(L)) > 1e-6 and abs(L - (round(L * 2) / 2)) > 1e-6
     if is_quarter:
-        L1 = round(L - 0.25, 2)
-        L2 = round(L + 0.25, 2)
-        o1, u1, p1 = at_one(L1)
-        o2, u2, p2 = at_one(L2)
+        L1 = round(L - 0.25, 2); L2 = round(L + 0.25, 2)
+        o1, u1, p1 = at_one(L1); o2, u2, p2 = at_one(L2)
         over = (o1 + 0.5 * p1 + o2) / 2
         under = (u1 + 0.5 * p1 + u2) / 2
     else:
         o, u, p = at_one(L)
         if p > 1e-6:
-            over = o + 0.5 * p
-            under = u + 0.5 * p
+            over = o + 0.5 * p; under = u + 0.5 * p
         else:
             over, under = o, u
     side = "TÀI" if over >= under else "XỈU"
@@ -176,11 +147,9 @@ def over_under_at_line(m, line: float) -> dict:
 
 
 def asian_handicap_at_line(m, line: float) -> dict:
-    """Kèo chấp cho ĐỘI NHÀ với line (vd -0.5 = nhà chấp nửa trái, +0.25 = nhà nhận quarter).
-    Hỗ trợ line quarter (±0.25/0.75)."""
+    """AH cho line bất kỳ (hỗ trợ quarter)."""
     L = float(line)
     n = len(m)
-
     def at_one(L1):
         hw = aw = pu = 0.0
         for i in range(n):
@@ -190,20 +159,16 @@ def asian_handicap_at_line(m, line: float) -> dict:
                 elif d < -1e-9: aw += m[i][j]
                 else: pu += m[i][j]
         return hw, aw, pu
-
     is_quarter = abs(L - round(L)) > 1e-6 and abs(L - (round(L * 2) / 2)) > 1e-6
     if is_quarter:
-        L1 = round(L - 0.25, 2)
-        L2 = round(L + 0.25, 2)
-        h1, a1, p1 = at_one(L1)
-        h2, a2, p2 = at_one(L2)
+        L1 = round(L - 0.25, 2); L2 = round(L + 0.25, 2)
+        h1, a1, p1 = at_one(L1); h2, a2, p2 = at_one(L2)
         home = (h1 + 0.5 * p1 + h2) / 2
         away = (a1 + 0.5 * p1 + a2) / 2
     else:
         h, a, p = at_one(L)
         if p > 1e-6:
-            home = h + 0.5 * p
-            away = a + 0.5 * p
+            home = h + 0.5 * p; away = a + 0.5 * p
         else:
             home, away = h, a
     side = "home" if home >= away else "away"
@@ -212,7 +177,7 @@ def asian_handicap_at_line(m, line: float) -> dict:
 
 
 def consensus_line(rows: list[dict], key: str = "line") -> float | None:
-    """Trích line ĐỒNG THUẬN (median) từ bảng bookmaker rows = [{book, line, ...}, ...]."""
+    """Trích line ĐỒNG THUẬN (median) từ bảng bookmaker."""
     vals = []
     for r in rows or []:
         try:
@@ -221,31 +186,23 @@ def consensus_line(rows: list[dict], key: str = "line") -> float | None:
             vals.append(float(v))
         except (ValueError, TypeError):
             continue
-    if not vals:
-        return None
+    if not vals: return None
     vals.sort()
     n = len(vals)
-    if n % 2 == 1:
-        return vals[n // 2]
+    if n % 2 == 1: return vals[n // 2]
     return round((vals[n // 2 - 1] + vals[n // 2]) / 2, 2)
 
 
 def asian_handicap(m, lines) -> dict:
-    """Kèo chấp cho ĐỘI NHÀ với mức `h` (vd -0.5 = nhà chấp nửa trái).
-    Trả {home_cover, push, away_cover} cho mỗi mức (mức nguyên/nửa)."""
-    n = len(m)
-    res = {}
+    n = len(m); res = {}
     for h in lines:
         hw = push = aw = 0.0
         for i in range(n):
             for j in range(n):
                 d = (i + h) - j
-                if d > 1e-9:
-                    hw += m[i][j]
-                elif abs(d) < 1e-9:
-                    push += m[i][j]
-                else:
-                    aw += m[i][j]
+                if d > 1e-9: hw += m[i][j]
+                elif abs(d) < 1e-9: push += m[i][j]
+                else: aw += m[i][j]
         res[_fmt(h)] = {"home": round(hw, 4), "push": round(push, 4), "away": round(aw, 4)}
     return res
 
@@ -254,53 +211,55 @@ def _fmt(x):
     return f"{x:+g}"
 
 
-def corner_pick(total_goals_xg: float, cur_corners: int = 0, minute: int = 0, line: float = 9.5) -> dict:
-    """Dự đoán kèo PHẠT GÓC Tài/Xỉu. Số góc kỳ vọng ~ cường độ tấn công (xG tổng).
-    Live: cộng góc hiện tại + góc kỳ vọng thời gian còn lại. (Heuristic vì nguồn ít dữ liệu góc.)"""
-    base_full = max(7.0, min(13.0, 9.0 + (total_goals_xg - 2.5) * 1.6))
+def corner_pick(total_goals_xg: float, cur_corners: int = 0, minute: int = 0,
+                line: float | None = None) -> dict:
+    """Kèo PHẠT GÓC T/X. LINE ĐỘNG: nếu line=None → tự chọn .5 gần nhất với exp_final.
+    Truyền line khi API có corner odds thật."""
+    base_full = max(5.0, min(14.0, 9.0 + (total_goals_xg - 2.5) * 1.6))
     frac = max(0.0, (90 - minute) / 90)
     exp_final = (cur_corners + base_full * frac) if minute > 0 else base_full
-    k = int(line)
-    cum = sum((exp_final ** i) * exp(-exp_final) / factorial(i) for i in range(k + 1))
-    over = max(0.0, min(1.0, 1 - cum))
-    pick = "TÀI" if over >= 0.5 else "XỈU"
-    return {"line": line, "exp_corners": round(exp_final, 1),
-            "over": round(over, 4), "under": round(1 - over, 4),
-            "pick": pick, "prob": round(max(over, 1 - over), 4)}
+    if line is None:
+        line = round(exp_final - 0.5) + 0.5
+        line = max(4.5, min(14.5, line))
+    L = float(line)
+    if L != int(L):
+        k_floor = int(L)
+        cum = sum((exp_final ** i) * exp(-exp_final) / factorial(i) for i in range(k_floor + 1))
+        over = max(0.0, min(1.0, 1 - cum))
+        under = 1 - over
+    else:
+        k_int = int(L)
+        p_lt = sum((exp_final ** i) * exp(-exp_final) / factorial(i) for i in range(k_int))
+        p_eq = (exp_final ** k_int) * exp(-exp_final) / factorial(k_int)
+        over = max(0.0, 1 - p_lt - p_eq) + 0.5 * p_eq
+        under = p_lt + 0.5 * p_eq
+    pick = "TÀI" if over >= under else "XỈU"
+    return {"line": L, "exp_corners": round(exp_final, 1),
+            "over": round(over, 4), "under": round(under, 4),
+            "pick": pick, "prob": round(max(over, under), 4)}
 
 
 def betting_lines(lh, la, m) -> dict:
-    """Tổng hợp Tài/Xỉu + kèo chấp + gợi ý cửa giá trị."""
     ou = over_under(m)
-    # mức chấp quanh chênh lệch kỳ vọng
     diff = lh - la
     fav = "home" if diff >= 0 else "away"
     margin = abs(diff)
-    # mức chấp chuẩn gần nhất (bội số 0.25 thường gặp, ở đây dùng 0.5 cho rõ)
     fair = round(margin * 2) / 2
     lines = sorted(set([-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5,
                         -fair, fair, -(fair + 0.5), -(fair - 0.5) if fair >= 0.5 else -0.5]))
     ah = asian_handicap(m, lines)
-
-    # gợi ý Tài/Xỉu (mức 2.5 chuẩn)
     ou25 = ou["2.5"]
     ou_side = "TÀI" if ou25["over"] >= ou25["under"] else "XỈU"
     ou_prob = max(ou25["over"], ou25["under"])
-
-    # gợi ý chấp: đội kèo trên chấp `fair` (âm cho đội nhà nếu nhà mạnh)
     home_line = -fair if fav == "home" else fair
     key = _fmt(home_line)
     cover = ah.get(key, {})
     if fav == "home":
-        cover_prob = cover.get("home", 0)
-        fav_label = "Đội nhà"
+        cover_prob = cover.get("home", 0); fav_label = "Đội nhà"
     else:
-        cover_prob = cover.get("away", 0)
-        fav_label = "Đội khách"
+        cover_prob = cover.get("away", 0); fav_label = "Đội khách"
     return {
-        "over_under": ou,
-        "handicap": ah,
-        "fair_handicap": fair,
+        "over_under": ou, "handicap": ah, "fair_handicap": fair,
         "ou_pick": {"side": ou_side, "line": 2.5, "prob": round(ou_prob, 4)},
         "ah_pick": {"team": fav_label, "side": fav, "line": home_line,
                     "cover": round(cover_prob, 4)},
@@ -309,11 +268,9 @@ def betting_lines(lh, la, m) -> dict:
 
 # ---------------- LIVE / IN-PLAY ----------------
 def live_inplay(lh: float, la: float, gh: int, ga: int, minute: int) -> dict:
-    """Xác suất kết cục dựa trên TỈ SỐ HIỆN TẠI + thời gian còn lại.
-    lh,la: bàn kỳ vọng cả trận. minute: phút đã đá (ước lượng)."""
     minute = max(0, min(minute, 90))
-    frac = max(0.0, (90 - minute) / 90)      # phần thời gian còn lại
-    rem_h, rem_a = lh * frac, la * frac      # bàn kỳ vọng còn lại
+    frac = max(0.0, (90 - minute) / 90)
+    rem_h, rem_a = lh * frac, la * frac
     ph = pd = pa = 0.0
     over_cur = gh + ga
     p_over25 = 0.0
@@ -336,8 +293,6 @@ def live_inplay(lh: float, la: float, gh: int, ga: int, minute: int) -> dict:
 
 
 def live_matrix(lh: float, la: float, gh: int, ga: int, minute: int) -> tuple:
-    """Ma trận xác suất TỈ SỐ CUỐI (tuyệt đối) dựa trên tỉ số hiện tại + thời gian còn lại.
-    Trả (matrix, rem_h, rem_a)."""
     minute = max(0, min(minute, 90))
     frac = max(0.0, (90 - minute) / 90)
     rem_h, rem_a = lh * frac, la * frac
@@ -368,7 +323,6 @@ def monte_carlo_live(lh, la, gh, ga, minute, n=10000) -> dict:
 
 # ---------------- MONTE CARLO ----------------
 def _rpois(lam):
-    """Lấy mẫu Poisson (thuật toán Knuth)."""
     L, k, p = exp(-lam), 0, 1.0
     while True:
         k += 1
