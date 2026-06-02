@@ -351,29 +351,34 @@ def tv_matches(date: str | None = None, live: bool = False):
 
 @app.get("/api/tv_debug/{fixture_id}")
 def tv_debug(fixture_id: int):
-    """DEBUG: trả raw response từ thethaoviet để xem field name thật."""
+    """DEBUG: trả raw response + parsed result để check field mapping."""
     try:
         raw = thethaoviet_client.get_detail_raw(fixture_id)
         data = raw.get("data")
         if isinstance(data, list): data = data[0] if data else {}
         if not isinstance(data, dict): data = {}
+
+        # Cũng test _norm_item parse
+        parsed = thethaoviet_client.get_detail(fixture_id)
+
         return {
             "ok": True,
-            "data_keys": list(data.keys()),
-            "summary_raw": data.get("summary", {}),
-            "summary_keys": list((data.get("summary") or {}).keys()),
-            "odds_keys": list((data.get("odds") or {}).keys()),
-            "odds_count": {
+            "raw_summary": data.get("summary", {}),
+            "raw_odds_count": {
                 "match_winner": len((data.get("odds") or {}).get("match_winner", [])),
                 "asian_handicap": len((data.get("odds") or {}).get("asian_handicap", [])),
                 "over_under": len((data.get("odds") or {}).get("over_under", [])),
             },
             "fixture_status": (data.get("fixture") or {}).get("status_short"),
-            "fixture_elapsed": (data.get("fixture") or {}).get("status_elapsed"),
-            "sample_odds": (data.get("odds") or {}).get("match_winner", [])[:3],
+            "PARSED_corners": parsed.get("corners") if parsed else None,
+            "PARSED_cards": parsed.get("cards") if parsed else None,
+            "PARSED_goals": parsed.get("goals") if parsed else None,
+            "PARSED_odds_books": (parsed.get("odds") or {}).get("n_books") if parsed else None,
+            "sample_h2h": (parsed.get("odds") or {}).get("h2h", [])[:3] if parsed else None,
         }
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        import traceback
+        return {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
 
 
 @app.get("/api/tv_live/{fixture_id}")
