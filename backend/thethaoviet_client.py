@@ -12,6 +12,7 @@ import time
 import httpx
 
 BASE = "https://api.thethaoviet.vip/api/p"
+ODDS_BASE = "https://api.thethaoviet.vip/api/odds"
 CACHE_TTL = 20  # live nên cache ngắn
 
 _cache: dict[str, tuple[float, dict]] = {}
@@ -40,6 +41,46 @@ def _get(path: str) -> dict:
 
 def get_detail_raw(fixture_id: int) -> dict:
     return _get(f"/fixtures/{fixture_id}/detail")
+
+
+def _get_odds_full_raw(fixture_id: int, prefer: str = "auto") -> dict:
+    """Lấy ĐẦY ĐỦ odds 1×2 + AH + O/U từ endpoint /api/odds/prematch & /live.
+    Endpoint này có 10-15 bookmakers (đầy đủ hơn /detail).
+    prefer: 'prematch' | 'live' | 'auto' (live trước, rỗng → prematch)."""
+    now = time.time()
+    ck = f"_odds_full:{fixture_id}:{prefer}"
+    if ck in _cache and now - _cache[ck][0] < CACHE_TTL:
+        return _cache[ck][1]
+    results = {"match_winner": [], "asian_handicap": [], "over_under": []}
+    bet_ids = {"match_winner": 1, "asian_handicap": 4, "over_under": 5}
+    sources = []
+    if prefer == "live":
+        sources = ["live", "prematch"]
+    elif prefer == "prematch":
+        sources = ["prematch"]
+    else:
+        sources = ["prematch"]  # default: prematch ổn định hơn
+
+    with httpx.Client(timeout=15, headers=_HEADERS) as c:
+        for src in sources:
+            for key, bid in bet_ids.items():
+                if results[key]:  # đã có data, skip
+                    continue
+                try:
+                    url = f"{ODDS_BASE}/{src}"
+                    params = {"fixture": fixture_id, "bet": bid} if src == "prematch" else {"bet": bid}
+                    r = c.get(url, params=params)
+                    if r.status_code != 200:
+                        continue
+                    data = r.json().get("data", []) or []
+                    if src == "live":
+                        # Live trả ALL matches → filter
+                        data = [o for o in data if o.get("fixture_id") == fixture_id or o.get("fixture") == fixture_id]
+                    results[key] = data
+                except Exception:
+                    continue
+    _cache[ck] = (now, results)
+    return results
 
 
 def _norm_item(fx: dict, summary: dict | None = None) -> dict | None:
@@ -120,7 +161,8 @@ def parse_odds(odds: dict) -> dict | None:
 
 
 def normalize(raw: dict) -> dict | None:
-    """Cho endpoint detail: data là dict {fixture, odds, summary} hoặc mảng."""
+    """Cho endpoint detail: data là dict {fixture, odds, summary} hoặc mảng.
+    FALLBACK: nếu /detail trả odds rỗng → fetch từ /api/odds/prematch (10+ bookmakers)."""
     data = raw.get("data")
     if isinstance(data, list):
         data = data[0] if data else None
@@ -129,7 +171,19 @@ def normalize(raw: dict) -> dict | None:
     if isinstance(data, dict) and "fixture" in data:
         m = _norm_item(data["fixture"], data.get("summary"))
         if m:
-            m["odds"] = parse_odds(data.get("odds") or {})
+            # Parse odds từ /detail trước
+            parsed = parse_odds(data.get("odds") or {})
+            # Nếu rỗng → fallback sang endpoint /api/odds/prematch (đầy đủ hơn)
+            if not parsed or not parsed.get("n_books"):
+                try:
+                    fid = m.get("fixture_id")
+                    status = (m.get("status") or "").upper()
+                    prefer = "live" if status in ("1H", "2H", "HT", "ET", "P") else "prematch"
+                    full_raw = _get_odds_full_raw(fid, prefer=prefer)
+                    parsed = parse_odds(full_raw)
+                except Exception as e:
+                    print(f"[thethaoviet] odds fallback err: {e}")
+            m["odds"] = parsed
         return m
     return _norm_item(data)
 
