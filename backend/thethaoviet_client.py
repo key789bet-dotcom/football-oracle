@@ -227,8 +227,96 @@ def normalize(raw: dict) -> dict | None:
     return _norm_item(data)
 
 
+def get_stats_raw(fixture_id: int) -> dict:
+    """Thử các endpoint stats khác nhau để lấy CORNER/SHOTS/POSSESSION thật.
+    /detail's summary chỉ có cho giải lớn → giải nhỏ trả 0. Thử thêm:
+    - /fixtures/{id}/statistics
+    - /fixtures/{id}/stats
+    - /fixtures/{id}/events  (parse events kiểu 'Corner')
+    - /matches/{id}/details
+    Trả {corners: {home, away}, shots: {...}, found_path: 'path that worked'} hoặc {}."""
+    now = time.time()
+    ck = f"_stats:{fixture_id}"
+    if ck in _cache and now - _cache[ck][0] < CACHE_TTL:
+        return _cache[ck][1]
+
+    candidates = [
+        f"/fixtures/{fixture_id}/statistics",
+        f"/fixtures/{fixture_id}/stats",
+        f"/fixtures/{fixture_id}/events",
+        f"/matches/{fixture_id}/details",
+        f"/matches/{fixture_id}/statistics",
+        f"/livescore/{fixture_id}",
+    ]
+    result = {}
+    with httpx.Client(timeout=10, headers=_HEADERS) as c:
+        for path in candidates:
+            try:
+                r = c.get(f"{BASE}{path}")
+                if r.status_code != 200: continue
+                data = r.json().get("data") if isinstance(r.json(), dict) else r.json()
+                if not data: continue
+                # Tìm corner trong response (nhiều shape có thể có)
+                corner_h = corner_a = None
+                # Shape 1: list events có type 'Corner'
+                if isinstance(data, list):
+                    corner_h = sum(1 for e in data if isinstance(e, dict) and
+                                   (e.get("type") or e.get("event_type") or "").lower() == "corner"
+                                   and ("home" in str(e.get("team") or e.get("side") or "").lower()))
+                    corner_a = sum(1 for e in data if isinstance(e, dict) and
+                                   (e.get("type") or e.get("event_type") or "").lower() == "corner"
+                                   and ("away" in str(e.get("team") or e.get("side") or "").lower()))
+                # Shape 2: dict có 'home'/'away' keys với stats
+                if isinstance(data, dict):
+                    # Tìm key chứa 'corner'
+                    def deep_find(obj, hint):
+                        if isinstance(obj, dict):
+                            for k, v in obj.items():
+                                if hint in str(k).lower():
+                                    return v
+                                found = deep_find(v, hint)
+                                if found is not None: return found
+                        elif isinstance(obj, list):
+                            for item in obj:
+                                found = deep_find(item, hint)
+                                if found is not None: return found
+                        return None
+                    c_val = deep_find(data, "corner")
+                    if isinstance(c_val, dict):
+                        corner_h = c_val.get("home") or c_val.get("h")
+                        corner_a = c_val.get("away") or c_val.get("a")
+                if corner_h is not None or corner_a is not None:
+                    result = {
+                        "corners": {"home": int(corner_h or 0), "away": int(corner_a or 0)},
+                        "found_path": path,
+                    }
+                    break
+            except Exception as e:
+                continue
+    _cache[ck] = (now, result)
+    return result
+
+
 def get_detail(fixture_id: int) -> dict | None:
-    return normalize(get_detail_raw(fixture_id))
+    """Lấy chi tiết trận + fallback stats nếu summary corners trống."""
+    m = normalize(get_detail_raw(fixture_id))
+    if not m:
+        return m
+    # Fallback corner: nếu /detail summary cả home+away = 0 (có thể missing data) →
+    # thử các endpoint stats khác. Nếu tìm được → override.
+    ch = (m.get("corners") or {}).get("home", 0)
+    ca = (m.get("corners") or {}).get("away", 0)
+    minute = m.get("minute", 0)
+    # Chỉ override nếu trận đã đá (minute>5) và current = 0-0 (thường trống data)
+    if minute and minute > 5 and ch == 0 and ca == 0:
+        try:
+            stats = get_stats_raw(fixture_id)
+            if stats.get("corners"):
+                m["corners"] = stats["corners"]
+                m["_corner_source"] = stats.get("found_path", "fallback")
+        except Exception as e:
+            print(f"[thethaoviet] stats fallback err: {e}")
+    return m
 
 
 def get_fixtures_by_date(date_iso: str) -> list[dict]:

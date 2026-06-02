@@ -708,13 +708,35 @@ function renderRealOdds(d){
   box.appendChild(wrap);
 }
 
+// ⭐ Cho user nhập tay corner thật khi API thieu data (giải nhỏ U19, friendlies...)
+function setCornerOverride(fid){
+  const cur=localStorage.getItem(`cornerOv:${fid}`)||'';
+  const v=prompt(
+    'Nhập tỉ số phạt góc thật (nhà - khách), ví dụ 3-2.\nĐể TRỐNG rồi OK để xoá override (dùng lại data API).',
+    cur
+  );
+  if(v===null) return;     // cancel
+  if(v.trim()===''){ localStorage.removeItem(`cornerOv:${fid}`); }
+  else{
+    const m=v.trim().match(/^(\d+)\s*[-:\s]\s*(\d+)$/);
+    if(!m){ alert('Định dạng sai. Ví dụ: 3-2 hoặc 3 2'); return; }
+    localStorage.setItem(`cornerOv:${fid}`, `${m[1]}-${m[2]}`);
+  }
+  tvRender();   // reload với data mới
+}
+
 async function tvRender(){
   const box=document.getElementById("tvpanel");if(!box)return;
   clearTimeout(tvLiveTimer);
   if(!tvId){clearInterval(tvTicker);box.innerHTML='<div class="src">// chọn một trận bên dưới (bấm PHÂN TÍCH) hoặc nhập ID rồi bấm THEO DÕI.</div>';return;}
   if(!box.querySelector("#tvreport")) box.innerHTML='<div class="src">[ ████░░░░ ] đang phân tích trực tiếp...</div>';
   try{
-    const r=await fetch(`${API}/api/tv_live/${tvId}`);
+    // ⭐ Manual override corner cho trận giải nhỏ (user tự nhập từ live UI)
+    const ovKey=`cornerOv:${tvId}`;
+    const ov=localStorage.getItem(ovKey);
+    let qs='';
+    if(ov){const [ch,ca]=ov.split('-').map(Number);if(!isNaN(ch)&&!isNaN(ca))qs=`?ch=${ch}&ca=${ca}`;}
+    const r=await fetch(`${API}/api/tv_live/${tvId}${qs}`);
     if(r.status===402){
       const d=await r.json();
       box.innerHTML='<div class="src err">! '+(d.detail||'Thiếu điểm để xem phân tích')+' — liên hệ ADMIN nạp thêm</div>';
@@ -735,7 +757,11 @@ async function tvRender(){
         <div class="teams" style="font-size:16px">${d.away.name}</div>
       </div><div class="score" style="font-size:24px">${d.score.home??0} : ${d.score.away??0}</div></div>
       <div class="grid2" style="margin:6px 0">
-        <div class="cell"><div class="k">PHẠT GÓC</div><div class="v">${(d.total_corners>0)?(d.corners.home+'-'+d.corners.away+' (tổng '+d.total_corners+')'):'<span style="color:var(--dim);font-size:11px">⚠ Giải nhỏ — API không có dữ liệu</span>'}</div></div>
+        <div class="cell"><div class="k">PHẠT GÓC ${(d._corner_source==='user-override')?'<span style="color:var(--warn);font-size:9px">✏️ thủ công</span>':''}</div>
+          <div class="v">${(d.total_corners>0)?(d.corners.home+'-'+d.corners.away+' (tổng '+d.total_corners+')'):'<span style="color:var(--dim);font-size:11px">⚠ API không có dữ liệu</span>'}
+            <button onclick="setCornerOverride('${tvId}')" style="background:rgba(255,176,0,.1);border:1px solid rgba(255,176,0,.4);color:var(--warn);font-size:10px;padding:2px 7px;border-radius:4px;cursor:pointer;margin-left:6px;font-family:inherit">✏️ Nhập tay</button>
+          </div>
+        </div>
         <div class="cell"><div class="k">THẺ</div><div class="v">${(d.cards.home_yellow+d.cards.away_yellow+d.cards.home_red+d.cards.away_red>0)?(d.cards.home_yellow+d.cards.away_yellow+'🟨 '+(d.cards.home_red+d.cards.away_red)+'🟥'):'<span style="color:var(--dim);font-size:11px">⚠ Không có dữ liệu</span>'}</div></div>
       </div>
       ${(!d.real_odds || !d.real_odds.n_books) ? '<div class="src" style="background:rgba(255,176,0,.08);border:1px solid rgba(255,176,0,.3);padding:8px 12px;border-radius:6px;margin:8px 0;color:var(--warn);font-size:11.5px">⚠ <b>Giải nhỏ:</b> '+(d.league||'')+' — không có data chi tiết cho trận này. Thử <b>fixture giải lớn</b> (J1 League, Premier League, La Liga, Champions League, World Cup, Friendlies)</div>' : ''}

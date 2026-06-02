@@ -426,8 +426,11 @@ def _pick_status(side: str, line: float, current: float, minute: int, finished: 
 
 
 @app.get("/api/tv_live/{fixture_id}")
-def tv_live(request: Request, fixture_id: int):
-    """Phân tích IN-PLAY theo PHÚT THẬT từ thethaoviet.vip (gọi lại mỗi phút).
+def tv_live(request: Request, fixture_id: int,
+            ch: int | None = None, ca: int | None = None):
+    """Phân tích IN-PLAY theo PHÚT THẬT.
+    QUERY PARAMS (override khi API thiếu data):
+      ?ch=2&ca=3  → bật override góc nhà=2, khách=3 (user nhập tay khi API trả 0)
     PAYWALL: trừ điểm user (admin free, đã mua xem lại free)."""
     _charge_match(request, fixture_id)
     try:
@@ -436,6 +439,10 @@ def tv_live(request: Request, fixture_id: int):
         raise HTTPException(status_code=502, detail=f"Không gọi được thethaoviet: {e}")
     if not m:
         raise HTTPException(status_code=404, detail="Không có dữ liệu trận này.")
+    # ⭐ MANUAL OVERRIDE corners khi user nhập từ UI
+    if ch is not None or ca is not None:
+        m["corners"] = {"home": int(ch or 0), "away": int(ca or 0)}
+        m["_corner_source"] = "user-override"
     gh = m["goals"]["home"] or 0
     ga = m["goals"]["away"] or 0
     minute = m["minute"] or 0
@@ -621,6 +628,7 @@ def tv_live(request: Request, fixture_id: int):
         "real_odds": odds,   # kèo thật từ thethaoviet (1×2 + chấp + Tài/Xỉu theo nhà cái)
         "ratings": {"home": None, "away": None},
         "corners": m["corners"], "total_corners": tc, "cards": m["cards"],
+        "_corner_source": m.get("_corner_source"),  # 'user-override' / fallback path / None
         "picks_tracking": picks_tracking,
     }
 
