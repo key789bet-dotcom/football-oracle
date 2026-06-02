@@ -596,18 +596,26 @@ def tv_live(request: Request, fixture_id: int,
             "live_pick": bets["ou_pick"],
         },
     }
-    verdict = predictor.build_verdict(final, market, lh_eff, la_eff)
-    diff = gh - ga
-    if minute >= 80 and diff != 0:
-        verdict.insert(0, f"PHÚT {minute}: tỉ số {gh}-{ga}, sắp hết giờ → kết quả gần như định đoạt.")
-    elif diff == 0 and minute > 0:
-        verdict.insert(0, f"PHÚT {minute}: đang hòa {gh}-{ga}, còn ~{90-minute}' → kèo còn mở.")
-    elif minute > 0:
-        lead = "Đội nhà" if diff > 0 else "Đội khách"
-        verdict.insert(0, f"PHÚT {minute}: {lead} dẫn {gh}-{ga}, còn ~{90-minute}'.")
+    # ⭐ NHẬN ĐỊNH PHASE-AWARE — thay đổi từ pre-match → H1 → HT → H2 → FT
+    verdict = predictor.build_phase_verdict(
+        final=final, market=market,
+        home_xg=lh_eff, away_xg=la_eff,
+        minute=minute, status=m.get("status") or "",
+        home_score=gh, away_score=ga,
+        corners_home=m["corners"]["home"] or 0,
+        corners_away=m["corners"]["away"] or 0,
+        cards_y=(m["cards"]["home_yellow"] or 0) + (m["cards"]["away_yellow"] or 0),
+        cards_r=(m["cards"]["home_red"] or 0) + (m["cards"]["away_red"] or 0),
+        home_name=m["home"]["name"], away_name=m["away"]["name"],
+        pre_market_probs=mp,
+        real_ou_line=real_ou_line,
+        real_ah_line=real_ah_line,
+    )
+    # Append final pick lines từ live bets
     ahp, oup = bets["ah_pick"], bets["ou_pick"]
-    verdict.append(f"Kèo chấp: {ahp['team']} chấp {ahp['line']:+g} — thắng kèo {ahp['cover']*100:.1f}%.")
-    verdict.append(f"Tài/Xỉu {oup['line']}: nghiêng {oup['side']} — {oup['prob']*100:.1f}%.")
+    team_lbl = ahp.get("team", "Đội nhà" if ahp.get("side") == "home" else "Đội khách")
+    verdict.append(f"⚖ Kèo chấp: {team_lbl} chấp {ahp.get('line', 0):+g} — coverage {ahp.get('cover', 0)*100:.1f}%.")
+    verdict.append(f"🎯 Tài/Xỉu {oup.get('line', 2.5)}: {oup.get('side', '?')} — {oup.get('prob', 0)*100:.1f}%.")
     tc = m["corners"]["home"] + m["corners"]["away"]
     return {
         "fixture_id": fixture_id, "source": "diendanbongda.com (phút thật)", "engine": "in-play",

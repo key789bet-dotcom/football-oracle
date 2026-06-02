@@ -228,6 +228,210 @@ def build_verdict(final: dict, market: dict, home_xg: float, away_xg: float) -> 
     return lines
 
 
+def build_phase_verdict(
+    *,
+    final: dict, market: dict,
+    home_xg: float, away_xg: float,
+    minute: int, status: str,
+    home_score: int, away_score: int,
+    corners_home: int = 0, corners_away: int = 0,
+    cards_y: int = 0, cards_r: int = 0,
+    home_name: str = "Đội nhà", away_name: str = "Đội khách",
+    pre_market_probs: dict | None = None,
+    real_ou_line: float | None = None,
+    real_ah_line: float | None = None,
+) -> list[str]:
+    """Nhận định CHUYÊN SÂU theo PHASE — thay đổi theo phút thật + data live.
+
+    Phase:
+      0 = pre-match (minute=0, status NS/scheduled)
+      1 = đầu trận (1-15')
+      2 = giữa H1 (15-30')
+      3 = cuối H1 (30-45')
+      4 = HT
+      5 = đầu H2 (46-60')
+      6 = giữa H2 (60-75')
+      7 = cuối trận (75-90+')
+      8 = FT (đã kết thúc)
+    """
+    s = (status or "").upper()
+    finished = s in ("FT", "AET", "PEN")
+    if finished:
+        phase = 8
+    elif s == "HT" or (44 <= minute <= 46 and home_score == away_score):
+        phase = 4 if s == "HT" else 3
+    elif minute == 0 or s in ("NS", "TBD", ""):
+        phase = 0
+    elif minute < 15:
+        phase = 1
+    elif minute < 30:
+        phase = 2
+    elif minute < 45:
+        phase = 3
+    elif minute < 60:
+        phase = 5
+    elif minute < 75:
+        phase = 6
+    else:
+        phase = 7
+
+    diff = home_score - away_score
+    abs_diff = abs(diff)
+    total_g = home_score + away_score
+    total_c = corners_home + corners_away
+    rem_min = max(0, 90 - minute)
+    pick = max(final, key=final.get)
+    pick_label = {"home": home_name, "draw": "Hoà", "away": away_name}[pick]
+    p_top = final[pick]
+
+    lines = []
+
+    # =============== PHASE 0: PRE-MATCH ===============
+    if phase == 0:
+        lines.append(f"📋 NHẬN ĐỊNH TRƯỚC TRẬN — {home_name} vs {away_name}")
+        # Pick chính
+        if p_top >= 0.55:
+            lines.append(f"🎯 Kèo chính: ưu tiên {pick_label} — xác suất {p_top*100:.1f}% (độ tin cậy {_confidence_tier(p_top)}).")
+        elif final["draw"] >= 0.30:
+            lines.append(f"⚖ Trận cân: hoà {final['draw']*100:.1f}% — kèo đôi {pick_label.upper()} + HOÀ an toàn hơn.")
+        else:
+            lines.append(f"🌀 Kèo mở: {pick_label} chỉ {p_top*100:.1f}% — không có cửa thuận, hạn chế cược.")
+        # xG comparison
+        if abs(home_xg - away_xg) >= 0.8:
+            stronger = home_name if home_xg > away_xg else away_name
+            lines.append(f"💪 Sức mạnh: {stronger} vượt trội (xG {max(home_xg,away_xg):.2f} vs {min(home_xg,away_xg):.2f}).")
+        else:
+            lines.append(f"⚔ Sức mạnh ngang ngửa: xG {home_xg:.2f} - {away_xg:.2f}.")
+        # Market consensus
+        if pre_market_probs:
+            mp = pre_market_probs
+            top_mk = max(mp, key=mp.get)
+            mk_label = {"home": home_name, "draw": "Hoà", "away": away_name}[top_mk]
+            lines.append(f"📈 Kèo thị trường (đồng thuận N nhà cái): nghiêng {mk_label} {mp[top_mk]*100:.1f}%.")
+            # Phát hiện divergence
+            if abs(mp.get(pick, 0) - p_top) > 0.08:
+                lines.append(f"⚠ Lệch model-thị trường: model {p_top*100:.0f}% vs thị trường {mp.get(pick,0)*100:.0f}% — kiểm tra kỹ.")
+        # Tổng bàn
+        ou_line = real_ou_line or 2.5
+        ou_p = market.get(f"over_{ou_line}") or (market["over_2_5"] if ou_line == 2.5 else None)
+        if ou_p:
+            ou_side = "TÀI" if ou_p >= 0.5 else "XỈU"
+            lines.append(f"🎯 Tài/Xỉu {ou_line}: nghiêng {ou_side} ({max(ou_p,1-ou_p)*100:.1f}%) · xG tổng {market.get('total_xg',0):.2f}.")
+        # Strategy
+        if p_top >= 0.55 and (pre_market_probs is None or abs((pre_market_probs.get(pick) or 0.5) - p_top) < 0.05):
+            lines.append(f"✓ Chiến lược: vào sớm pre-match — cửa {pick_label} value rõ.")
+        else:
+            lines.append("⏳ Chiến lược: chờ in-play minute 15-30' để xem nhịp trận, vào kèo lệch.")
+        return lines
+
+    # =============== PHASE 1-7: IN-PLAY ===============
+    # Header phase
+    phase_names = {
+        1: "ĐẦU TRẬN", 2: "GIỮA HIỆP 1", 3: "CUỐI HIỆP 1",
+        4: "GIỜ NGHỈ", 5: "ĐẦU HIỆP 2", 6: "GIỮA HIỆP 2", 7: "CUỐI TRẬN",
+    }
+    pn = phase_names.get(phase, f"PHÚT {minute}")
+    score_str = f"{home_score}-{away_score}"
+    if diff > 0:
+        leading_name = home_name
+    elif diff < 0:
+        leading_name = away_name
+    else:
+        leading_name = None
+
+    if phase == 4:  # HT
+        lines.append(f"⏸ {pn} · Tỉ số {score_str}")
+    elif minute >= 90:
+        lines.append(f"⏱ PHÚT 90+ · Tỉ số {score_str} · Bù giờ")
+    else:
+        lines.append(f"⏱ {pn} · PHÚT {minute} · Tỉ số {score_str} · Còn ~{rem_min}'")
+
+    # Đánh giá tỉ số vs prediction pre-match
+    if diff == 0:
+        if phase >= 6:
+            lines.append(f"🌀 Vẫn hoà sau {minute}' — kèo hoà tăng đáng kể, cân nhắc XỈU + HOÀ.")
+        elif phase >= 2:
+            lines.append(f"⚖ Đang hoà {score_str} — còn nhiều thời gian, kèo còn mở.")
+        else:
+            lines.append(f"⚖ Vào trận thận trọng — chưa có bàn.")
+    else:
+        if abs_diff >= 2:
+            if phase >= 7:
+                lines.append(f"🏆 {leading_name} dẫn {abs_diff} bàn cuối trận — gần như chắc thắng.")
+            elif phase >= 5:
+                lines.append(f"💎 {leading_name} dẫn {abs_diff} bàn — kèo {leading_name} thắng đã rất cao.")
+            else:
+                lines.append(f"🔥 {leading_name} dẫn sớm {abs_diff} bàn — áp đảo rõ rệt.")
+        else:
+            if phase >= 7:
+                lines.append(f"⚠ {leading_name} dẫn sát nút {score_str} cuối trận — vẫn có rủi ro mất kèo nếu thủng lưới phút bù.")
+            elif phase >= 5:
+                lines.append(f"📊 {leading_name} dẫn nhẹ {score_str} sau giờ nghỉ — đang giữ lợi thế.")
+            elif phase == 4:
+                lines.append(f"📊 {leading_name} dẫn {score_str} hết H1 — có lợi thế đầu H2.")
+            else:
+                lines.append(f"⚡ {leading_name} mở tỉ số sớm — kèo nghiêng về {leading_name}.")
+
+    # Live model probability — thay đổi do score+phút
+    lines.append(f"🎯 Model live: {pick_label} thắng {p_top*100:.1f}% (đã update theo {score_str} + phút {minute}).")
+
+    # Tổng bàn live
+    expected_total = total_g + (home_xg + away_xg) * (rem_min / 90)
+    ou_line = real_ou_line or 2.5
+    if total_g > ou_line:
+        lines.append(f"✓ T/X {ou_line}: TÀI đã đủ ({total_g} bàn > {ou_line}) — kèo TÀI thắng.")
+    elif expected_total > ou_line + 0.5:
+        lines.append(f"📈 T/X {ou_line}: hiện {total_g}, dự kiến cuối ~{expected_total:.1f} → vẫn theo TÀI.")
+    elif expected_total < ou_line - 0.5:
+        lines.append(f"📉 T/X {ou_line}: hiện {total_g}, dự kiến cuối ~{expected_total:.1f} → nghiêng XỈU.")
+    else:
+        lines.append(f"⚖ T/X {ou_line}: dự kiến cuối ~{expected_total:.1f} ≈ line → 50/50 rủi ro cao.")
+
+    # Phạt góc nếu có data
+    if total_c > 0:
+        # Giả định 1.0 góc / 10 phút trung bình (~9 góc/trận)
+        expected_corners_final = total_c + (total_c / max(minute, 1)) * rem_min if minute > 0 else total_c
+        lines.append(f"🚩 Góc hiện tại: {corners_home}-{corners_away} (tổng {total_c}) · dự kiến cuối ~{expected_corners_final:.0f}.")
+
+    # Thẻ
+    if cards_r > 0:
+        lines.append(f"🟥 {cards_r} thẻ đỏ — đội ít người yếu thế rõ.")
+    if cards_y >= 6:
+        lines.append(f"🟨 Trận căng ({cards_y} thẻ vàng) — rủi ro hiệp 2 còn thẻ đỏ.")
+
+    # Strategy theo phase
+    if phase == 1:
+        lines.append("⏳ Chiến lược: quan sát nhịp, chưa vào kèo. Đợi 25'+.")
+    elif phase == 2:
+        if diff == 0 and abs(home_xg - away_xg) > 0.5:
+            lines.append(f"💡 Cơ hội: đội mạnh chưa ghi → giá kèo TỐT hơn pre-match, có thể vào.")
+        else:
+            lines.append("📊 Đang vào nhịp — giữ vị thế, chờ HT điều chỉnh.")
+    elif phase == 3:
+        lines.append(f"⏰ Chuẩn bị HT — kèo HT 1×2 + HT O/U hợp lý nếu còn cửa.")
+    elif phase == 4:
+        if diff == 0:
+            lines.append("⏸ HT hoà — H2 thường ít bàn hơn, ưu tiên XỈU + HOÀ/draw no bet.")
+        else:
+            lines.append(f"⏸ HT có bàn — H2 thường khó bùng nổ, nhưng đội thua sẽ đẩy cao đội hình.")
+    elif phase == 5:
+        lines.append("🔥 Đầu H2 — 10 phút đầu hay có bàn, theo dõi sát đà tấn công.")
+    elif phase == 6:
+        if diff == 0:
+            lines.append("⚠ Hoà giữa H2 — kèo hoà tăng giá trị, cân nhắc Asian draw +0.")
+        elif abs_diff == 1:
+            lines.append("⚠ Cách biệt 1 bàn giữa H2 — đội thua sẽ liều, rủi ro huề/lội ngược cao.")
+    elif phase == 7:
+        if abs_diff >= 2:
+            lines.append(f"🔒 Cuối trận chênh ≥2 bàn — kèo gần như chốt, chỉ vào những kèo siêu chắc.")
+        elif diff == 0:
+            lines.append("🌀 Hoà cuối trận — XỈU + HOÀ giá tăng mạnh phút 80+.")
+        else:
+            lines.append(f"⚠ Sát nút cuối trận — đội thua dồn người, rủi ro mất kèo phút 85+.")
+
+    return lines
+
+
 def predict(home_matches, away_matches, home_id, away_id,
             odds_response=None, h2h_matches=None) -> dict:
     """Hàm chính: trả dự đoán đầy đủ cho 1 trận."""
