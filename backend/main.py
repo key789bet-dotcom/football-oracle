@@ -847,6 +847,63 @@ def _admin_user_points(
     return {"ok": ok, "msg": msg, "points": users_db.get_points(id)}
 
 
+# ============ BET SLIP TRACKER ============
+
+@app.get("/api/bets/list")
+def _bets_list(request: Request, status: str = ""):
+    """List bet của user đang đăng nhập."""
+    user = request.state.user
+    return {"items": users_db.list_bets(user["id"], status=status)}
+
+
+@app.get("/api/bets/stats")
+def _bets_stats(request: Request):
+    """Stats ROI / win rate / by league / by type."""
+    user = request.state.user
+    return users_db.bets_stats(user["id"])
+
+
+@app.post("/api/bets/create")
+async def _bets_create(request: Request):
+    """Tạo bet mới. Body JSON với: fixture_id, home_team, away_team, league,
+    bet_type, pick, line, stake, odd, note."""
+    user = request.state.user
+    try:
+        data = await request.json()
+    except Exception:
+        # Hỗ trợ Form data fallback
+        form = await request.form()
+        data = dict(form)
+    ok, msg, bid = users_db.create_bet(user["id"], data)
+    return {"ok": ok, "msg": msg, "id": bid}
+
+
+@app.post("/api/bets/{bet_id}/settle")
+async def _bets_settle(request: Request, bet_id: int, status: str = Form(...)):
+    user = request.state.user
+    ok, msg = users_db.settle_bet(bet_id, user["id"], status.strip().lower())
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/bets/{bet_id}/update")
+async def _bets_update(request: Request, bet_id: int):
+    user = request.state.user
+    try:
+        data = await request.json()
+    except Exception:
+        form = await request.form()
+        data = dict(form)
+    ok, msg = users_db.update_bet(bet_id, user["id"], data)
+    return {"ok": ok, "msg": msg}
+
+
+@app.post("/api/bets/{bet_id}/delete")
+def _bets_delete(request: Request, bet_id: int):
+    user = request.state.user
+    users_db.delete_bet(bet_id, user["id"])
+    return {"ok": True, "msg": "Đã xóa cược"}
+
+
 # ============ FRONTEND STATIC (đặt CUỐI cùng) ============
 # Phục vụ frontend tĩnh — index.html ở "/", các file khác theo path
 if os.path.isdir(_frontend_dir):

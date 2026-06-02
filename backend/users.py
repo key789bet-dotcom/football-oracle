@@ -61,6 +61,29 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_uprd_user ON user_predictions(user_id);
+
+        CREATE TABLE IF NOT EXISTS user_bets(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            fixture_id INTEGER,
+            home_team TEXT NOT NULL,
+            away_team TEXT NOT NULL,
+            league TEXT,
+            bet_type TEXT NOT NULL,            -- '1x2' | 'hdp' | 'ou' | 'btts' | 'corner'
+            pick TEXT NOT NULL,                -- 'home' | 'draw' | 'away' | 'over' | 'under' | 'yes' | 'no' | custom
+            line REAL,                          -- handicap line hoặc total line
+            stake REAL NOT NULL,                -- số tiền đặt
+            odd REAL NOT NULL,                  -- tỷ lệ ăn (decimal)
+            status TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'won' | 'lost' | 'push' | 'half_won' | 'half_lost'
+            profit REAL NOT NULL DEFAULT 0,    -- lãi/lỗ thực tế
+            note TEXT,
+            placed_at INTEGER NOT NULL,
+            settled_at INTEGER,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_bets_user ON user_bets(user_id);
+        CREATE INDEX IF NOT EXISTS idx_bets_status ON user_bets(user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_bets_placed ON user_bets(user_id, placed_at DESC);
         """)
         # Migration: thêm cột points nếu users đã tồn tại từ trước nhưng chưa có
         try:
@@ -350,3 +373,223 @@ def user_unlocks(user_id: int, limit: int = 50):
             (user_id, limit),
         ).fetchall()
     return [{"fixture_id": r[0], "cost": r[1], "paid_at": r[2]} for r in rows]
+
+
+# ============== BET SLIP TRACKER ==============
+
+VALID_BET_TYPES = ("1x2", "hdp", "ou", "btts", "corner")
+VALID_STATUS = ("pending", "won", "lost", "push", "half_won", "half_lost")
+
+
+def _bet_row_to_dict(r):
+    return {
+        "id": r[0], "user_id": r[1], "fixture_id": r[2],
+        "home_team": r[3], "away_team": r[4], "league": r[5] or "",
+        "bet_type": r[6], "pick": r[7], "line": r[8],
+        "stake": r[9], "odd": r[10],
+        "status": r[11], "profit": r[12], "note": r[13] or "",
+        "placed_at": r[14], "settled_at": r[15],
+    }
+
+
+def create_bet(user_id: int, data: dict):
+    """Tạo bet mới. Trả (ok, msg, bet_id)."""
+    try:
+        bet_type = (data.get("bet_type") or "1x2").strip().lower()
+        if bet_type not in VALID_BET_TYPES:
+            return False, f"bet_type không hợp lệ (phải là {VALID_BET_TYPES})", None
+        pick = (data.get("pick") or "").strip().lower()
+        if not pick:
+            return False, "Thiếu pick", None
+        stake = float(data.get("stake") or 0)
+        odd = float(data.get("odd") or 0)
+        if stake <= 0:
+            return False, "Stake phải > 0", None
+        if odd <= 1:
+            return False, "Odd phải > 1.0 (decimal)", None
+        home = (data.get("home_team") or "").strip()
+        away = (data.get("away_team") or "").strip()
+        if not home or not away:
+            return False, "Thiếu tên 2 đội", None
+        line = data.get("line")
+        try:
+            line = float(line) if line not in (None, "") else None
+        except (TypeError, ValueError):
+            line = None
+        with _conn() as c:
+            cur = c.execute(
+                """INSERT INTO user_bets(user_id,fixture_id,home_team,away_team,league,
+                                          bet_type,pick,line,stake,odd,status,profit,note,placed_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    user_id,
+                    int(data["fixture_id"]) if data.get("fixture_id") else None,
+                    home, away, (data.get("league") or "").strip()[:120],
+                    bet_type, pick, line, stake, odd,
+                    "pending", 0.0, (data.get("note") or "").strip()[:200],
+                    int(time.time()),
+                ),
+            )
+            bid = cur.lastrowid
+        return True, "Đã tạo cược", bid
+    except Exception as e:
+        return False, f"Lỗi tạo cược: {e}", None
+
+
+def list_bets(user_id: int, status: str = "", limit: int = 200):
+    """Liệt kê bet của user. status = '' để lấy tất cả."""
+    q = "SELECT id,user_id,fixture_id,home_team,away_team,league,bet_type,pick,line,stake,odd,status,profit,note,placed_at,settled_at FROM user_bets WHERE user_id=?"
+    args = [user_id]
+    if status and status in VALID_STATUS:
+        q += " AND status=?"
+        args.append(status)
+    q += " ORDER BY placed_at DESC LIMIT ?"
+    args.append(int(limit))
+    with _conn() as c:
+        rows = c.execute(q, args).fetchall()
+    return [_bet_row_to_dict(r) for r in rows]
+
+
+def get_bet(bet_id: int, user_id: int):
+    """Get 1 bet (chỉ trả nếu thuộc user_id để bảo mật)."""
+    with _conn() as c:
+        r = c.execute(
+            "SELECT id,user_id,fixture_id,home_team,away_team,league,bet_type,pick,line,stake,odd,status,profit,note,placed_at,settled_at FROM user_bets WHERE id=? AND user_id=?",
+            (bet_id, user_id),
+        ).fetchone()
+    return _bet_row_to_dict(r) if r else None
+
+
+def settle_bet(bet_id: int, user_id: int, new_status: str):
+    """Đánh dấu thắng/thua/hoà. Tự tính profit dựa trên status."""
+    if new_status not in VALID_STATUS:
+        return False, f"status không hợp lệ"
+    bet = get_bet(bet_id, user_id)
+    if not bet:
+        return False, "Bet không tồn tại"
+    stake, odd = bet["stake"], bet["odd"]
+    if new_status == "won":
+        profit = stake * (odd - 1)
+    elif new_status == "lost":
+        profit = -stake
+    elif new_status == "push":
+        profit = 0
+    elif new_status == "half_won":
+        profit = stake * (odd - 1) / 2
+    elif new_status == "half_lost":
+        profit = -stake / 2
+    else:  # pending
+        profit = 0
+    settled_at = int(time.time()) if new_status != "pending" else None
+    with _conn() as c:
+        c.execute(
+            "UPDATE user_bets SET status=?, profit=?, settled_at=? WHERE id=? AND user_id=?",
+            (new_status, profit, settled_at, bet_id, user_id),
+        )
+    return True, f"Đã set {new_status} · lãi/lỗ: {profit:+.2f}"
+
+
+def update_bet(bet_id: int, user_id: int, data: dict):
+    """Sửa thông tin bet (chỉ stake/odd/note nếu chưa settled)."""
+    bet = get_bet(bet_id, user_id)
+    if not bet:
+        return False, "Bet không tồn tại"
+    if bet["status"] != "pending":
+        return False, "Chỉ sửa được bet đang chờ"
+    updates, args = [], []
+    if "stake" in data and data["stake"] is not None:
+        try:
+            v = float(data["stake"])
+            if v > 0: updates.append("stake=?"); args.append(v)
+        except: pass
+    if "odd" in data and data["odd"] is not None:
+        try:
+            v = float(data["odd"])
+            if v > 1: updates.append("odd=?"); args.append(v)
+        except: pass
+    if "note" in data:
+        updates.append("note=?"); args.append(str(data["note"])[:200])
+    if not updates:
+        return False, "Không có gì để update"
+    args.extend([bet_id, user_id])
+    with _conn() as c:
+        c.execute(f"UPDATE user_bets SET {','.join(updates)} WHERE id=? AND user_id=?", args)
+    return True, "Đã cập nhật"
+
+
+def delete_bet(bet_id: int, user_id: int):
+    with _conn() as c:
+        c.execute("DELETE FROM user_bets WHERE id=? AND user_id=?", (bet_id, user_id))
+    return True
+
+
+def bets_stats(user_id: int):
+    """Tính ROI, win rate, lãi/lỗ tổng + theo league + theo bet_type."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT bet_type, status, stake, profit, league FROM user_bets WHERE user_id=?",
+            (user_id,),
+        ).fetchall()
+    total = len(rows)
+    if total == 0:
+        return {
+            "total": 0, "pending": 0, "settled": 0,
+            "won": 0, "lost": 0, "push": 0,
+            "win_rate": 0, "total_stake": 0, "total_profit": 0,
+            "roi": 0,
+            "by_league": [], "by_type": [],
+        }
+    pending = sum(1 for r in rows if r[1] == "pending")
+    won = sum(1 for r in rows if r[1] in ("won", "half_won"))
+    lost = sum(1 for r in rows if r[1] in ("lost", "half_lost"))
+    push = sum(1 for r in rows if r[1] == "push")
+    settled = total - pending
+    total_stake = sum(r[2] for r in rows if r[1] != "pending")
+    total_profit = sum(r[3] for r in rows)
+    win_rate = (won / settled) if settled > 0 else 0
+    roi = (total_profit / total_stake) if total_stake > 0 else 0
+
+    # By league
+    league_map = {}
+    for r in rows:
+        if r[1] == "pending":
+            continue
+        lg = (r[4] or "Khác")
+        d = league_map.setdefault(lg, {"league": lg, "total": 0, "won": 0, "stake": 0, "profit": 0})
+        d["total"] += 1
+        if r[1] in ("won", "half_won"):
+            d["won"] += 1
+        d["stake"] += r[2]
+        d["profit"] += r[3]
+    by_league = sorted(league_map.values(), key=lambda x: -x["total"])[:10]
+    for d in by_league:
+        d["win_rate"] = (d["won"] / d["total"]) if d["total"] > 0 else 0
+        d["roi"] = (d["profit"] / d["stake"]) if d["stake"] > 0 else 0
+
+    # By bet type
+    type_map = {}
+    for r in rows:
+        if r[1] == "pending":
+            continue
+        bt = r[0]
+        d = type_map.setdefault(bt, {"bet_type": bt, "total": 0, "won": 0, "stake": 0, "profit": 0})
+        d["total"] += 1
+        if r[1] in ("won", "half_won"):
+            d["won"] += 1
+        d["stake"] += r[2]
+        d["profit"] += r[3]
+    by_type = sorted(type_map.values(), key=lambda x: -x["total"])
+    for d in by_type:
+        d["win_rate"] = (d["won"] / d["total"]) if d["total"] > 0 else 0
+        d["roi"] = (d["profit"] / d["stake"]) if d["stake"] > 0 else 0
+
+    return {
+        "total": total, "pending": pending, "settled": settled,
+        "won": won, "lost": lost, "push": push,
+        "win_rate": round(win_rate, 4),
+        "total_stake": round(total_stake, 2),
+        "total_profit": round(total_profit, 2),
+        "roi": round(roi, 4),
+        "by_league": by_league,
+        "by_type": by_type,
+    }

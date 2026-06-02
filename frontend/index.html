@@ -518,6 +518,7 @@
 
 <div class="controls">
   <button id="b-live" class="active" onclick="setTab('live')">◉ LIVE</button>
+  <button id="b-bets" onclick="setTab('bets')">📒 SỔ CƯỢC</button>
   <button id="b-bt" onclick="setTab('bt')">◎ KIỂM ĐỊNH</button>
   <button id="b-track" onclick="setTab('track')">▣ SỔ KÈO</button>
   <button id="b-comp" onclick="setTab('comp')">▦ TRẬN ĐẤU</button>
@@ -549,7 +550,7 @@ const code=()=>document.getElementById("comp").value;
 
 function setTab(t){
   tab=t;
-  ["comp","rank","bt","track","live"].forEach(x=>document.getElementById("b-"+x).classList.toggle("active",x===t));
+  ["comp","rank","bt","track","live","bets"].forEach(x=>document.getElementById("b-"+x)?.classList.toggle("active",x===t));
   clearInterval(timer);
   document.getElementById("auto").textContent = t==="live"?"// auto-sync 30s":"";
   if(t==="live") timer=setInterval(reload,60000);  // tự cập nhật mỗi phút
@@ -557,7 +558,7 @@ function setTab(t){
 }
 function reload(){ if(tab==="comp")loadMatches(); else if(tab==="rank")loadRank();
   else if(tab==="bt")loadValidate(); else if(tab==="track")loadTrack();
-  else if(tab==="live")loadLive(); }
+  else if(tab==="live")loadLive(); else if(tab==="bets")loadBets(); }
 
 async function getJSON(u){const r=await fetch(u);return r.json();}
 
@@ -1015,6 +1016,188 @@ async function loadTrack(){
         :'<div class="src">// chưa có dự đoán nào được ghi. Hãy vào tab TRẬN ĐẤU và bấm PHÂN TÍCH các trận SẮP ĐÁ — chúng sẽ tự được ghi vào sổ và đối chiếu khi đá xong.</div>'}</div>
       <div class="src">// sổ này lưu vĩnh viễn (backend/track_log.json), không sửa hồi tố — đối chiếu tự động khi trận kết thúc. Đây mới là bằng chứng độ tin cậy thật theo thời gian.</div>`;
   }catch(e){v.innerHTML='<div class="empty err">! '+e+'</div>';}
+}
+
+// ============ BET SLIP TRACKER ============
+const BET_TYPE_LABELS = {"1x2":"1x2","hdp":"Kèo chấp","ou":"Tài/Xỉu","btts":"2 đội ghi bàn","corner":"Phạt góc"};
+const PICK_LABELS = {"home":"Đội nhà","draw":"Hoà","away":"Đội khách","over":"Tài","under":"Xỉu","yes":"Có","no":"Không"};
+const STATUS_LABELS = {"pending":"⏳ Chờ","won":"✓ Thắng","lost":"✗ Thua","push":"= Hoà vốn","half_won":"½ Thắng","half_lost":"½ Thua"};
+const STATUS_COLORS = {"pending":"var(--warn)","won":"var(--neon)","lost":"var(--bad)","push":"var(--dim)","half_won":"var(--neon2)","half_lost":"#ff8a85"};
+
+function fmtMoney(n){
+  const s = n.toLocaleString('vi-VN', {maximumFractionDigits:0});
+  return n >= 0 ? '+'+s : s;
+}
+function fmtDate(ts){
+  if(!ts) return '—';
+  return new Date(ts*1000).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+
+async function loadBets(){
+  const v=document.getElementById("view");
+  v.innerHTML='<div class="empty">[ 📒 ] tải sổ cược...</div>';
+  try{
+    const [statsRes, listRes] = await Promise.all([
+      fetch(`${API}/api/bets/stats`).then(r=>r.json()),
+      fetch(`${API}/api/bets/list`).then(r=>r.json()),
+    ]);
+    const s = statsRes; const bets = listRes.items || [];
+    const profitColor = s.total_profit >= 0 ? 'var(--neon)' : 'var(--bad)';
+    const roiColor = s.roi >= 0 ? 'var(--neon)' : 'var(--bad)';
+
+    const stats = `
+      <div class="bigstat">
+        <div class="bs"><div class="n" style="color:${profitColor}">${fmtMoney(s.total_profit)}</div><div class="l">Lãi/Lỗ tổng</div></div>
+        <div class="bs"><div class="n" style="color:${roiColor}">${(s.roi*100).toFixed(1)}%</div><div class="l">ROI</div></div>
+        <div class="bs"><div class="n">${(s.win_rate*100).toFixed(1)}%</div><div class="l">Tỉ lệ trúng (${s.won}/${s.settled})</div></div>
+        <div class="bs"><div class="n" style="color:var(--neon2)">${s.total}</div><div class="l">Tổng cược (${s.pending} chờ)</div></div>
+      </div>`;
+
+    const form = `
+      <div class="match" style="margin-bottom:14px">
+        <div class="vh">▌ ➕ THÊM CƯỢC MỚI</div>
+        <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+          <input id="bf-home" placeholder="Đội nhà *" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px 11px;border-radius:5px;font-size:13px"/>
+          <input id="bf-away" placeholder="Đội khách *" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px 11px;border-radius:5px;font-size:13px"/>
+          <input id="bf-league" placeholder="Giải đấu (vd: Ngoại hạng Anh)" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px 11px;border-radius:5px;font-size:13px"/>
+          <input id="bf-fixture" placeholder="Fixture ID (optional)" type="number" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px 11px;border-radius:5px;font-size:13px"/>
+        </div>
+        <div class="grid2" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px;margin-top:8px">
+          <select id="bf-type" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px;border-radius:5px;font-size:12.5px">
+            <option value="1x2">1x2</option><option value="hdp">Kèo chấp</option><option value="ou">Tài/Xỉu</option>
+            <option value="btts">BTTS</option><option value="corner">Góc</option>
+          </select>
+          <select id="bf-pick" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px;border-radius:5px;font-size:12.5px">
+            <option value="home">Nhà</option><option value="draw">Hoà</option><option value="away">Khách</option>
+            <option value="over">Tài</option><option value="under">Xỉu</option><option value="yes">Có</option><option value="no">Không</option>
+          </select>
+          <input id="bf-line" placeholder="Line (vd 2.5, -1)" type="number" step="0.25" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px;border-radius:5px;font-size:13px"/>
+          <input id="bf-stake" placeholder="Stake *" type="number" step="any" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px;border-radius:5px;font-size:13px"/>
+          <input id="bf-odd" placeholder="Odd * (vd 1.95)" type="number" step="0.01" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px;border-radius:5px;font-size:13px"/>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <input id="bf-note" placeholder="Ghi chú (optional)" style="flex:1;font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:9px 11px;border-radius:5px;font-size:13px"/>
+          <button onclick="submitBet()" style="font-family:inherit;background:linear-gradient(135deg,var(--neon),#7aff00);color:#001a0e;border:0;padding:9px 20px;border-radius:5px;font-size:12.5px;font-weight:800;letter-spacing:1.5px;cursor:pointer">▸ LƯU CƯỢC</button>
+        </div>
+        <div id="bf-msg" class="src" style="margin-top:6px"></div>
+      </div>`;
+
+    const filter = `
+      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="${!betFilter?'active':''}" onclick="filterBets('')">Tất cả (${s.total})</button>
+        <button class="${betFilter==='pending'?'active':''}" onclick="filterBets('pending')">⏳ Chờ (${s.pending})</button>
+        <button class="${betFilter==='won'?'active':''}" onclick="filterBets('won')">✓ Thắng (${s.won})</button>
+        <button class="${betFilter==='lost'?'active':''}" onclick="filterBets('lost')">✗ Thua (${s.lost})</button>
+      </div>`;
+
+    const filtered = betFilter ? bets.filter(b=>b.status===betFilter||(betFilter==='won'&&b.status==='half_won')||(betFilter==='lost'&&b.status==='half_lost')) : bets;
+    const rows = filtered.length ? filtered.map(b => `
+      <tr style="border-bottom:1px solid rgba(0,255,156,.08)">
+        <td style="padding:8px 6px;font-size:11px;color:var(--dim)">${fmtDate(b.placed_at)}</td>
+        <td style="padding:8px 6px"><b style="color:var(--txt)">${esc(b.home_team)}</b> vs <b>${esc(b.away_team)}</b><div style="font-size:10px;color:var(--dim)">${esc(b.league||'—')}</div></td>
+        <td style="padding:8px 6px;text-align:center"><span style="color:var(--warn);font-weight:700">${BET_TYPE_LABELS[b.bet_type]||b.bet_type}</span><div style="font-size:11px;color:var(--neon)">${PICK_LABELS[b.pick]||b.pick}${b.line!=null?' ('+b.line+')':''}</div></td>
+        <td style="padding:8px 6px;text-align:right">${b.stake.toLocaleString('vi-VN')}<div style="font-size:10px;color:var(--dim)">@${b.odd.toFixed(2)}</div></td>
+        <td style="padding:8px 6px;text-align:center"><span style="color:${STATUS_COLORS[b.status]};font-weight:700;font-size:12px">${STATUS_LABELS[b.status]}</span></td>
+        <td style="padding:8px 6px;text-align:right;color:${b.profit>0?'var(--neon)':b.profit<0?'var(--bad)':'var(--dim)'};font-weight:700">${b.status==='pending'?'—':fmtMoney(b.profit)}</td>
+        <td style="padding:8px 6px;text-align:right">
+          ${b.status==='pending'?`
+            <select onchange="settleBet(${b.id}, this.value)" style="font-family:inherit;background:var(--panel2);color:var(--neon);border:1px solid rgba(0,255,156,.3);padding:4px 6px;border-radius:4px;font-size:11px">
+              <option value="">Settle...</option>
+              <option value="won">✓ Thắng</option>
+              <option value="lost">✗ Thua</option>
+              <option value="push">= Hoà vốn</option>
+              <option value="half_won">½ Thắng</option>
+              <option value="half_lost">½ Thua</option>
+            </select>` : `<button onclick="settleBet(${b.id},'pending')" style="font-family:inherit;background:var(--panel2);color:var(--warn);border:1px solid rgba(255,176,0,.3);padding:4px 8px;border-radius:4px;font-size:10px;cursor:pointer">↺ Reset</button>`}
+          <button onclick="deleteBet(${b.id})" style="font-family:inherit;background:rgba(255,59,92,.1);color:var(--bad);border:1px solid rgba(255,59,92,.3);padding:4px 8px;border-radius:4px;font-size:10px;cursor:pointer;margin-left:4px">✗</button>
+        </td>
+      </tr>`).join('') : '<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--dim)">// chưa có cược nào</td></tr>';
+
+    const table = `
+      <div class="match">
+        <div class="vh">▌ DANH SÁCH CƯỢC</div>
+        ${filter}
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead>
+            <tr><th style="text-align:left;padding:6px;font-size:10px;color:var(--dim);letter-spacing:1px">NGÀY</th>
+                <th style="text-align:left;padding:6px;font-size:10px;color:var(--dim);letter-spacing:1px">TRẬN</th>
+                <th style="text-align:center;padding:6px;font-size:10px;color:var(--dim);letter-spacing:1px">KÈO</th>
+                <th style="text-align:right;padding:6px;font-size:10px;color:var(--dim);letter-spacing:1px">STAKE/ODD</th>
+                <th style="text-align:center;padding:6px;font-size:10px;color:var(--dim);letter-spacing:1px">TRẠNG THÁI</th>
+                <th style="text-align:right;padding:6px;font-size:10px;color:var(--dim);letter-spacing:1px">LÃI/LỖ</th>
+                <th style="text-align:right;padding:6px;font-size:10px;color:var(--dim);letter-spacing:1px"></th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+
+    const byLeague = (s.by_league||[]).length ? `
+      <div class="match">
+        <div class="vh">▌ THỐNG KÊ THEO GIẢI</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr><th style="text-align:left;padding:6px;font-size:10px;color:var(--dim)">GIẢI</th>
+              <th style="padding:6px;font-size:10px;color:var(--dim)">CƯỢC</th>
+              <th style="padding:6px;font-size:10px;color:var(--dim)">WIN%</th>
+              <th style="text-align:right;padding:6px;font-size:10px;color:var(--dim)">LÃI/LỖ</th>
+              <th style="text-align:right;padding:6px;font-size:10px;color:var(--dim)">ROI</th></tr></thead>
+          <tbody>
+            ${s.by_league.map(d => `<tr><td style="padding:6px;color:var(--txt)">${esc(d.league)}</td>
+                <td style="text-align:center;padding:6px">${d.total}</td>
+                <td style="text-align:center;padding:6px;color:var(--neon)">${(d.win_rate*100).toFixed(0)}%</td>
+                <td style="text-align:right;padding:6px;color:${d.profit>=0?'var(--neon)':'var(--bad)'};font-weight:700">${fmtMoney(d.profit)}</td>
+                <td style="text-align:right;padding:6px;color:${d.roi>=0?'var(--neon)':'var(--bad)'};font-weight:700">${(d.roi*100).toFixed(1)}%</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : '';
+
+    v.innerHTML = stats + form + table + byLeague;
+  }catch(e){
+    v.innerHTML='<div class="empty err">! '+e+'</div>';
+  }
+}
+function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+
+let betFilter = '';
+function filterBets(f){ betFilter = f; loadBets(); }
+
+async function submitBet(){
+  const data = {
+    home_team: document.getElementById('bf-home').value.trim(),
+    away_team: document.getElementById('bf-away').value.trim(),
+    league: document.getElementById('bf-league').value.trim(),
+    fixture_id: document.getElementById('bf-fixture').value.trim(),
+    bet_type: document.getElementById('bf-type').value,
+    pick: document.getElementById('bf-pick').value,
+    line: document.getElementById('bf-line').value.trim(),
+    stake: document.getElementById('bf-stake').value.trim(),
+    odd: document.getElementById('bf-odd').value.trim(),
+    note: document.getElementById('bf-note').value.trim(),
+  };
+  const msg = document.getElementById('bf-msg');
+  try{
+    const r = await fetch(API+'/api/bets/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const j = await r.json();
+    if(j.ok){
+      msg.innerHTML = '<span style="color:var(--neon)">✓ '+j.msg+'</span>';
+      // Clear form
+      ['bf-home','bf-away','bf-league','bf-fixture','bf-line','bf-stake','bf-odd','bf-note'].forEach(id=>document.getElementById(id).value='');
+      setTimeout(loadBets, 800);
+    }else{
+      msg.innerHTML = '<span style="color:var(--bad)">✗ '+j.msg+'</span>';
+    }
+  }catch(e){ msg.innerHTML='<span style="color:var(--bad)">✗ '+e+'</span>'; }
+}
+
+async function settleBet(id, status){
+  if(!status) return;
+  const fd = new FormData(); fd.append('status', status);
+  await fetch(API+`/api/bets/${id}/settle`,{method:'POST',body:fd});
+  loadBets();
+}
+async function deleteBet(id){
+  if(!confirm('Xóa cược này?')) return;
+  await fetch(API+`/api/bets/${id}/delete`,{method:'POST'});
+  loadBets();
 }
 
 // Load current user info: username + role + points
